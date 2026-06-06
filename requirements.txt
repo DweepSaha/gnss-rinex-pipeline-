@@ -1,0 +1,9 @@
+georinex
+numpy
+pandas
+matplotlib
+xarray
+scipy
+pymap3d
+pytest
+jupyter
