@@ -1,9 +1,8 @@
+streamlit
 georinex
 numpy
-pandas
-matplotlib
-xarray
 scipy
+matplotlib
 pymap3d
-pytest
-jupyter
+pandas
+xarray
