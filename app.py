@@ -1,11 +1,6 @@
 """
 GNSS Positioning Quality Analyzer — Streamlit Dashboard
-Week 2 UX improvements:
-  - More distinct beginner/advanced visual separation
-  - Additional colour indicators on all metric cards
-  - More metric cards in beginner mode
-  - Link to Understanding Your Results help page
-  - Improved sidebar with mode explanation
+Phase 4 — Complete UX implementation
 """
 import streamlit as st
 import georinex as gr
@@ -36,7 +31,6 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-/* Banners */
 .quality-banner-good {
     background:#1a3d2b;border-left:4px solid #1D9E75;
     padding:12px 16px;border-radius:6px;margin-bottom:16px;
@@ -52,7 +46,6 @@ st.markdown("""
     padding:12px 16px;border-radius:6px;margin-bottom:16px;
     color:#f5a58a;font-size:15px;line-height:1.6;
 }
-/* CEP50 badges */
 .badge-green {
     background:#1D9E75;color:white;padding:4px 12px;
     border-radius:12px;font-size:14px;font-weight:500;
@@ -65,7 +58,6 @@ st.markdown("""
     background:#D85A30;color:white;padding:4px 12px;
     border-radius:12px;font-size:14px;font-weight:500;
 }
-/* Metric cards */
 .metric-card-green {
     background:#0d2018;border:1px solid #1D9E75;border-radius:8px;
     padding:14px 16px;margin-bottom:8px;
@@ -95,7 +87,6 @@ st.markdown("""
 .metric-desc {
     font-size:12px;color:#888;line-height:1.4;
 }
-/* Mode banner */
 .mode-beginner {
     background:#0f1b2d;border:1px solid #2d5a8e;border-radius:6px;
     padding:8px 12px;margin-bottom:12px;font-size:12px;color:#7eb8f5;
@@ -104,11 +95,15 @@ st.markdown("""
     background:#1a1a2e;border:1px solid #534AB7;border-radius:6px;
     padding:8px 12px;margin-bottom:12px;font-size:12px;color:#a8a0f0;
 }
+.help-link-box {
+    background:#1a1a2e;border:1px solid #444;border-radius:6px;
+    padding:10px 12px;margin-top:8px;text-align:center;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Helper functions ──────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def generate_session_summary(cep50, n_clean, n_suspect, n_multipath, mean_hdop):
     total = n_clean + n_suspect + n_multipath
@@ -168,38 +163,29 @@ def metric_card(title, value, description, card_class="metric-card-neutral",
 
 
 def hdop_card_class(hdop):
-    if hdop < 1.5:
-        return "metric-card-green"
-    elif hdop < 2.0:
-        return "metric-card-amber"
+    if hdop < 1.5: return "metric-card-green"
+    elif hdop < 2.0: return "metric-card-amber"
     return "metric-card-red"
 
 
 def cep50_card_class(cep50):
-    if cep50 < 50:
-        return "metric-card-green"
-    elif cep50 < 150:
-        return "metric-card-amber"
+    if cep50 < 50: return "metric-card-green"
+    elif cep50 < 150: return "metric-card-amber"
     return "metric-card-red"
 
 
 def signal_summary_card(n_clean, n_suspect, n_multipath):
     total = n_clean + n_suspect + n_multipath
     if n_multipath > 0:
-        cls = "metric-card-red"
+        cls  = "metric-card-red"
         desc = f"{n_multipath} satellite(s) had reflected signals — heavily discounted"
     elif n_suspect > 2:
-        cls = "metric-card-amber"
+        cls  = "metric-card-amber"
         desc = f"{n_suspect} satellites showed minor signal issues — used with reduced weight"
     else:
-        cls = "metric-card-green"
-        desc = f"All or most satellites had reliable signals"
-    return metric_card(
-        "Signal quality",
-        f"{n_clean}/{total} clean",
-        desc,
-        cls
-    )
+        cls  = "metric-card-green"
+        desc = "All or most satellites had reliable signals"
+    return metric_card("Signal quality", f"{n_clean}/{total} clean", desc, cls)
 
 
 def accuracy_expectations_table(cep50):
@@ -221,12 +207,7 @@ def accuracy_expectations_table(cep50):
             status = f'<span style="color:#666">{note}</span>'
         else:
             status = '<span style="color:#D85A30">✗ Accuracy too low</span>'
-
-        if threshold < 1:
-            thr_str = f"{threshold*100:.0f} cm"
-        else:
-            thr_str = f"{threshold:.0f} m"
-
+        thr_str = f"{threshold*100:.0f} cm" if threshold < 1 else f"{threshold:.0f} m"
         rows += f"""
         <tr>
             <td style="padding:7px 10px;border-bottom:1px solid #2a2a3e">{app}</td>
@@ -234,17 +215,16 @@ def accuracy_expectations_table(cep50):
                        text-align:center;color:#aaa">{thr_str}</td>
             <td style="padding:7px 10px;border-bottom:1px solid #2a2a3e">{status}</td>
         </tr>"""
-
     return f"""
     <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
             <tr style="background:#1a1a2e">
-                <th style="padding:8px 10px;text-align:left;
-                           border-bottom:2px solid #444;color:#ccc">Application</th>
-                <th style="padding:8px 10px;text-align:center;
-                           border-bottom:2px solid #444;color:#ccc">Accuracy needed</th>
-                <th style="padding:8px 10px;text-align:left;
-                           border-bottom:2px solid #444;color:#ccc">Your result</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #444;
+                           color:#ccc">Application</th>
+                <th style="padding:8px 10px;text-align:center;border-bottom:2px solid #444;
+                           color:#ccc">Accuracy needed</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #444;
+                           color:#ccc">Your result</th>
             </tr>
         </thead>
         <tbody>{rows}</tbody>
@@ -254,9 +234,9 @@ def accuracy_expectations_table(cep50):
 def satellite_table_html(flags, snr_results, cmc_results, advanced_mode):
     rows = ""
     for sat in sorted(flags.keys()):
-        flag    = flags[sat]
-        snr_r   = snr_results.get(sat, {}).get("result", {})
-        cmc_r   = cmc_results.get(sat, {}).get("result", {})
+        flag     = flags[sat]
+        snr_r    = snr_results.get(sat, {}).get("result", {})
+        cmc_r    = cmc_results.get(sat, {}).get("result", {})
         mean_snr = snr_r.get("mean_snr", None)
         cmc_std  = cmc_r.get("std", None)
         snr_flag = snr_r.get("flag", "—")
@@ -275,9 +255,8 @@ def satellite_table_html(flags, snr_results, cmc_results, advanced_mode):
             flag_html = '<span style="color:#D85A30;font-weight:500">✗ Multipath</span>'
             flag_desc = "Signal reflected — 5% weight (nearly excluded)"
 
-        snr_str = f"{mean_snr:.1f} dB-Hz" if mean_snr else "—"
-        cmc_str = f"{cmc_std:.4f} m" if cmc_std else "—"
-
+        snr_str   = f"{mean_snr:.1f} dB-Hz" if mean_snr else "—"
+        cmc_str   = f"{cmc_std:.4f} m" if cmc_std else "—"
         snr_color = (
             "#1D9E75" if mean_snr and mean_snr > 40
             else "#BA7517" if mean_snr and mean_snr > 30
@@ -342,9 +321,8 @@ def process_session(obs_path, nav_path, ref_lat, ref_lon, ref_h, max_epochs):
         "snr_results": {}, "cmc_results": {},
         "combined_flags": {},
     }
-
-    obs = gr.load(obs_path, use="G")
-    nav = gr.load(nav_path, use="G")
+    obs         = gr.load(obs_path, use="G")
+    nav         = gr.load(nav_path, use="G")
     epochs      = obs.time.values[:max_epochs]
     obs_limited = obs.sel(time=epochs)
 
@@ -360,8 +338,7 @@ def process_session(obs_path, nav_path, ref_lat, ref_lon, ref_h, max_epochs):
         epoch_s           = epoch.astype("datetime64[s]")
         total_gps_seconds = float((epoch_s - GPS_EPOCH).astype(float))
         gps_time_of_week  = total_gps_seconds % 604800.0
-
-        gps_sats = [s for s in obs.sv.values if str(s).startswith("G")]
+        gps_sats          = [s for s in obs.sv.values if str(s).startswith("G")]
 
         pseudoranges = {}; sat_positions = {}; elevations = {}
         azimuths = {}; ephemerides = {}; eccentric_anomalies = {}
@@ -396,7 +373,7 @@ def process_session(obs_path, nav_path, ref_lat, ref_lon, ref_h, max_epochs):
         if len(pseudoranges) < 4:
             continue
 
-        toes = [float(ephemerides[s].get("Toe", 0.0)) for s in ephemerides]
+        toes       = [float(ephemerides[s].get("Toe", 0.0)) for s in ephemerides]
         median_toe = float(np.median(toes))
         dt_check   = gps_time_of_week - median_toe
         if dt_check < -302400:
@@ -415,7 +392,6 @@ def process_session(obs_path, nav_path, ref_lat, ref_lon, ref_h, max_epochs):
             nav_header, gps_time=solver_gps_time,
             x0=x0, weights=sat_weights
         )
-
         if not result["converged"]:
             continue
 
@@ -517,7 +493,7 @@ def make_snr_heatmap(snr_results):
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
 
-    # UNB GGE branding — replace text with image when logo file is available
+    # UNB GGE logo
     logo_path = Path("assets/gge_transparent.png")
     if logo_path.exists():
         st.image(str(logo_path), use_container_width=True)
@@ -525,21 +501,16 @@ with st.sidebar:
         st.markdown("""
         <div style="text-align:center;padding:8px 0 4px 0;
                     border:1px dashed #333;border-radius:6px;margin-bottom:8px">
-            <div style="font-size:11px;color:#666;margin-bottom:2px">
-                Department of
-            </div>
+            <div style="font-size:11px;color:#666;margin-bottom:2px">Department of</div>
             <div style="font-size:13px;font-weight:500;color:#ccc;line-height:1.4">
                 Geodesy & Geomatics Engineering
             </div>
-            <div style="font-size:11px;color:#666">
-                University of New Brunswick
-            </div>
+            <div style="font-size:11px;color:#666">University of New Brunswick</div>
         </div>
         """, unsafe_allow_html=True)
 
     st.markdown("---")
 
-    # Mode toggle with explanation
     advanced_mode = st.toggle(
         "Advanced mode",
         value=False,
@@ -551,14 +522,12 @@ with st.sidebar:
 
     if advanced_mode:
         st.markdown(
-            '<div class="mode-advanced">⚙ Advanced mode — '
-            'showing full technical details</div>',
+            '<div class="mode-advanced">⚙ Advanced mode — full technical details</div>',
             unsafe_allow_html=True
         )
     else:
         st.markdown(
-            '<div class="mode-beginner">📘 Beginner mode — '
-            'plain-English summaries</div>',
+            '<div class="mode-beginner">📘 Beginner mode — plain-English summaries</div>',
             unsafe_allow_html=True
         )
 
@@ -625,12 +594,18 @@ with st.sidebar:
         use_container_width=True
     )
 
-    st.page_link(
-        "pages/1_Understanding_Results.py",
-        label="📖 Understanding your results",
-        help="Full explanations of every input, output, and GNSS term"
+    st.markdown("---")
+    # Help page link — works on both local and Streamlit Cloud
+    st.markdown(
+        '<div class="help-link-box">'
+        '📖 <a href="/1_Understanding_Results" target="_self" '
+        'style="color:#7eb8f5;text-decoration:none;font-size:13px">'
+        'Understanding your results</a><br>'
+        '<span style="font-size:11px;color:#666">'
+        'Plain-English guide to every input, output, and GNSS term'
+        '</span></div>',
+        unsafe_allow_html=True
     )
-    
 
 
 # ── Main panel ────────────────────────────────────────────────────────────────
@@ -643,7 +618,7 @@ st.caption(
 if not run_button:
     st.info(
         "Upload your GPS files in the sidebar and click **Analyze session** to begin. "
-        "New to GNSS? Click **📖 Understanding your results** in the sidebar for a "
+        "New to GNSS? Use the **Understanding your results** link in the sidebar for a "
         "plain-English guide to every input and output."
     )
 
@@ -751,7 +726,6 @@ else:
     st.subheader("Accuracy summary")
 
     if not advanced_mode:
-        # Beginner mode — colour metric cards with plain-English context
         st.markdown(
             f"**Overall accuracy rating:** &nbsp; {cep50_badge(stats['CEP50'])}",
             unsafe_allow_html=True
@@ -760,76 +734,56 @@ else:
 
         r1c1, r1c2, r1c3 = st.columns(3)
         with r1c1:
-            st.markdown(
-                metric_card(
-                    "Horizontal accuracy (CEP50)",
-                    f"{stats['CEP50']:.1f} m",
-                    "Half your positions were within this distance of the true location. "
-                    "Smaller = better.",
-                    cep50_card_class(stats["CEP50"])
-                ),
-                unsafe_allow_html=True
-            )
+            st.markdown(metric_card(
+                "Horizontal accuracy (CEP50)",
+                f"{stats['CEP50']:.1f} m",
+                "Half your positions were within this distance of the true location. Smaller = better.",
+                cep50_card_class(stats["CEP50"])
+            ), unsafe_allow_html=True)
         with r1c2:
-            st.markdown(
-                metric_card(
-                    "Worst-case accuracy (CEP95)",
-                    f"{stats['CEP95']:.1f} m",
-                    "95% of your positions were within this distance. "
-                    "Only 1 in 20 positions was worse.",
-                    cep50_card_class(stats["CEP95"])
-                ),
-                unsafe_allow_html=True
-            )
+            st.markdown(metric_card(
+                "Worst-case accuracy (CEP95)",
+                f"{stats['CEP95']:.1f} m",
+                "95% of your positions were within this distance. Only 1 in 20 positions was worse.",
+                cep50_card_class(stats["CEP95"])
+            ), unsafe_allow_html=True)
         with r1c3:
-            st.markdown(
-                signal_summary_card(n_clean, n_suspect, n_multipath),
-                unsafe_allow_html=True
-            )
+            st.markdown(signal_summary_card(n_clean, n_suspect, n_multipath),
+                        unsafe_allow_html=True)
 
         r2c1, r2c2, r2c3 = st.columns(3)
         with r2c1:
-            st.markdown(
-                metric_card(
-                    "Height accuracy (RMSE vertical)",
-                    f"{stats['RMSE_V']:.1f} m",
-                    "Average height error. Vertical is always less accurate than horizontal in GPS "
-                    "because satellites are only above the horizon.",
-                    "metric-card-amber" if stats["RMSE_V"] < 200 else "metric-card-red"
-                ),
-                unsafe_allow_html=True
-            )
+            st.markdown(metric_card(
+                "Height accuracy (RMSE vertical)",
+                f"{stats['RMSE_V']:.1f} m",
+                "Average height error. Vertical is always less accurate than horizontal in GPS "
+                "because satellites are only above the horizon.",
+                "metric-card-amber" if stats["RMSE_V"] < 200 else "metric-card-red"
+            ), unsafe_allow_html=True)
         with r2c2:
             hdop_label = (
                 "Excellent ✓" if mean_hdop < 1.5
                 else "Good ✓" if mean_hdop < 2.0
                 else "Marginal ⚠"
             )
-            st.markdown(
-                metric_card(
-                    "Satellite geometry (HDOP)",
-                    f"{mean_hdop:.2f} — {hdop_label}",
-                    "How well-spread the satellites were across the sky. "
-                    "Under 1.5 = excellent. Above 2.0 = clustered, accuracy may be reduced.",
-                    hdop_card_class(mean_hdop)
-                ),
-                unsafe_allow_html=True
-            )
+            st.markdown(metric_card(
+                "Satellite geometry (HDOP)",
+                f"{mean_hdop:.2f} — {hdop_label}",
+                "How well-spread the satellites were across the sky. "
+                "Under 1.5 = excellent. Above 2.0 = clustered, accuracy may be reduced.",
+                hdop_card_class(mean_hdop)
+            ), unsafe_allow_html=True)
         with r2c3:
-            st.markdown(
-                metric_card(
-                    "Observations analyzed",
-                    str(results["n_processed"]),
-                    f"Each observation = 30 seconds of GPS measurements. "
-                    f"{results['n_processed']} observations = "
-                    f"{results['n_processed'] * 30 / 60:.0f} minutes of session.",
-                    "metric-card-neutral"
-                ),
-                unsafe_allow_html=True
-            )
+            st.markdown(metric_card(
+                "Observations analyzed",
+                str(results["n_processed"]),
+                f"Each observation = 30 seconds of GPS measurements. "
+                f"{results['n_processed']} observations = "
+                f"{results['n_processed'] * 30 / 60:.0f} minutes of session.",
+                "metric-card-neutral"
+            ), unsafe_allow_html=True)
 
     else:
-        # Advanced mode — standard Streamlit metrics with full labels
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("Epochs processed", results["n_processed"],
                   help="Number of 30-second observation sets analyzed.")
@@ -848,23 +802,20 @@ else:
         d2.metric("Mean PDOP", f"{mean_pdop:.2f}",
                   help="3D position dilution of precision. Under 2.5 = good.")
         d3.metric("2DRMS", f"{stats.get('2DRMS', 0):.1f} m",
-                  help="Twice the distance RMS — contains 95% of positions for circular normal distribution.")
+                  help="Twice the distance RMS — contains 95% of positions.")
         d4.metric("Mean horizontal error", f"{stats.get('mean_H', 0):.1f} m",
                   help="Simple arithmetic mean of all horizontal errors.")
 
     st.divider()
 
-    # ── What can I use this data for? ────────────────────────────────────────
+    # ── Accuracy expectations ─────────────────────────────────────────────────
     st.subheader("What can I use this data for?")
     if not advanced_mode:
         st.caption(
             "Based on your CEP50 accuracy, here are the surveying and mapping applications "
             "your session is suitable for."
         )
-    st.markdown(
-        accuracy_expectations_table(stats["CEP50"]),
-        unsafe_allow_html=True
-    )
+    st.markdown(accuracy_expectations_table(stats["CEP50"]), unsafe_allow_html=True)
 
     st.divider()
 
@@ -873,16 +824,11 @@ else:
     if not advanced_mode:
         st.caption(
             "Each GPS satellite is rated based on its signal strength (SNR) and "
-            "multipath contamination (CMC). Green = clean, amber = suspect, red = multipath reflected."
+            "multipath contamination (CMC). Green = clean, amber = suspect, red = multipath."
         )
-
     st.markdown(
-        satellite_table_html(
-            flags,
-            results["snr_results"],
-            results["cmc_results"],
-            advanced_mode
-        ),
+        satellite_table_html(flags, results["snr_results"],
+                             results["cmc_results"], advanced_mode),
         unsafe_allow_html=True
     )
 
@@ -890,22 +836,18 @@ else:
 
     # ── Plots ─────────────────────────────────────────────────────────────────
     st.subheader("Position analysis")
-
     col_scatter, col_snr = st.columns([1, 2])
 
     with col_scatter:
         fig_scatter = make_scatter_plot(
-            results["north_errors"],
-            results["east_errors"],
-            list(eh)
+            results["north_errors"], results["east_errors"], list(eh)
         )
         st.pyplot(fig_scatter, use_container_width=True)
         plt.close()
         if not advanced_mode:
             st.caption(
                 "Each dot = one GPS position fix. Red cross = true location. "
-                "Green circle = CEP50 (half your positions inside this). "
-                "Tighter clustering = better accuracy."
+                "Green circle = CEP50. Tighter clustering = better accuracy."
             )
 
     with col_snr:
@@ -921,9 +863,7 @@ else:
 
     st.subheader("Error over time")
     fig_ts = make_error_timeseries(
-        results["errors_h"],
-        results["errors_v"],
-        results["dop_list"]
+        results["errors_h"], results["errors_v"], results["dop_list"]
     )
     st.pyplot(fig_ts, use_container_width=True)
     plt.close()
@@ -931,24 +871,19 @@ else:
     if not advanced_mode:
         st.caption(
             "Top: horizontal distance from true location at each moment. "
-            "Middle: height error at each moment. "
+            "Middle: height error. "
             "Bottom: satellite geometry score — drops when a new satellite rises above the horizon."
         )
 
     # ── Footer ────────────────────────────────────────────────────────────────
     st.divider()
-    col_f1, col_f2 = st.columns([3, 1])
-    with col_f1:
-        st.markdown(
-            '<div style="color:#666;font-size:12px">'
-            'GNSS Positioning Quality Analyzer · '
-            'Dweep Saha · Department of Geodesy & Geomatics Engineering · '
-            'University of New Brunswick'
-            '</div>',
-            unsafe_allow_html=True
-        )
-    with col_f2:
-        st.page_link(
-            "pages/1_Understanding_Results.py",
-            label="📖 Understanding your results"
-        )
+    st.markdown(
+        '<div style="text-align:center;color:#666;font-size:12px;padding:8px 0">'
+        'GNSS Positioning Quality Analyzer · '
+        'Dweep Saha · Department of Geodesy & Geomatics Engineering · '
+        'University of New Brunswick · '
+        '<a href="https://github.com/DweepSaha/gnss-rinex-pipeline-" '
+        'style="color:#534AB7">GitHub</a>'
+        '</div>',
+        unsafe_allow_html=True
+    )
