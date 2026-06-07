@@ -518,7 +518,7 @@ def make_snr_heatmap(snr_results):
 with st.sidebar:
 
     # UNB GGE branding — replace text with image when logo file is available
-    logo_path = Path("assets/unb_gge_logo.png")
+    logo_path = Path("assets/gge_transparent.png")
     if logo_path.exists():
         st.image(str(logo_path), use_container_width=True)
     else:
