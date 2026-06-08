@@ -1,6 +1,6 @@
 """
 GNSS Positioning Quality Analyzer — Streamlit Dashboard
-Phase 4 — Complete UX implementation
+Phase 4 — Complete UX implementation with RINEX 2/3 compatibility
 """
 import streamlit as st
 import georinex as gr
@@ -99,8 +99,33 @@ st.markdown("""
     background:#1a1a2e;border:1px solid #444;border-radius:6px;
     padding:10px 12px;margin-top:8px;text-align:center;
 }
+.rinex-badge {
+    background:#1a1a2e;border:1px solid #444;border-radius:4px;
+    padding:4px 10px;font-size:11px;color:#888;display:inline-block;
+    margin-bottom:8px;
+}
 </style>
 """, unsafe_allow_html=True)
+
+
+# ── Field name detection ──────────────────────────────────────────────────────
+
+def detect_rinex_fields(obs) -> tuple:
+    """
+    Detect pseudorange, SNR, and carrier phase field names.
+    RINEX 3 uses C1C, S1C, L1C.
+    RINEX 2 uses C1 (or P1), S1, L1.
+    Returns (pr_field, snr_field, carr_field, rinex_version_str).
+    """
+    pr_field = (
+        "C1C" if "C1C" in obs.data_vars
+        else "C1" if "C1" in obs.data_vars
+        else "P1"
+    )
+    snr_field = "S1C" if "S1C" in obs.data_vars else "S1"
+    carr_field = "L1C" if "L1C" in obs.data_vars else "L1"
+    version = "RINEX 3" if "C1C" in obs.data_vars else "RINEX 2"
+    return pr_field, snr_field, carr_field, version
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -186,49 +211,6 @@ def signal_summary_card(n_clean, n_suspect, n_multipath):
         cls  = "metric-card-green"
         desc = "All or most satellites had reliable signals"
     return metric_card("Signal quality", f"{n_clean}/{total} clean", desc, cls)
-
-
-def accuracy_expectations_table(cep50):
-    applications = [
-        ("Cadastral / boundary survey",      0.05,  "Requires RTK — not achievable with SPP"),
-        ("Construction layout",              0.01,  "Requires RTK — not achievable with SPP"),
-        ("Topographic survey",               0.5,   "Requires RTK or PPP"),
-        ("Utility / infrastructure mapping", 1.0,   "Requires SBAS corrections"),
-        ("GIS and mapping",                  5.0,   None),
-        ("Asset inventory",                  10.0,  None),
-        ("Navigation",                       20.0,  None),
-        ("Reconnaissance / planning",        100.0, None),
-    ]
-    rows = ""
-    for app, threshold, note in applications:
-        if cep50 <= threshold * 1000:
-            status = '<span style="color:#1D9E75;font-weight:500">✓ Meets this standard</span>'
-        elif note:
-            status = f'<span style="color:#666">{note}</span>'
-        else:
-            status = '<span style="color:#D85A30">✗ Accuracy too low</span>'
-        thr_str = f"{threshold*100:.0f} cm" if threshold < 1 else f"{threshold:.0f} m"
-        rows += f"""
-        <tr>
-            <td style="padding:7px 10px;border-bottom:1px solid #2a2a3e">{app}</td>
-            <td style="padding:7px 10px;border-bottom:1px solid #2a2a3e;
-                       text-align:center;color:#aaa">{thr_str}</td>
-            <td style="padding:7px 10px;border-bottom:1px solid #2a2a3e">{status}</td>
-        </tr>"""
-    return f"""
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead>
-            <tr style="background:#1a1a2e">
-                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #444;
-                           color:#ccc">Application</th>
-                <th style="padding:8px 10px;text-align:center;border-bottom:2px solid #444;
-                           color:#ccc">Accuracy needed</th>
-                <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #444;
-                           color:#ccc">Your result</th>
-            </tr>
-        </thead>
-        <tbody>{rows}</tbody>
-    </table>"""
 
 
 def satellite_table_html(flags, snr_results, cmc_results, advanced_mode):
@@ -320,13 +302,27 @@ def process_session(obs_path, nav_path, ref_lat, ref_lon, ref_h, max_epochs):
         "dop_list": [], "n_processed": 0,
         "snr_results": {}, "cmc_results": {},
         "combined_flags": {},
+        "rinex_version": "Unknown",
+        "n_sats_total": 0,
     }
-    obs         = gr.load(obs_path, use="G")
-    nav         = gr.load(nav_path, use="G")
+
+    obs = gr.load(obs_path, use="G")
+    nav = gr.load(nav_path, use="G")
+
     epochs      = obs.time.values[:max_epochs]
     obs_limited = obs.sel(time=epochs)
 
-    results["snr_results"]    = analyse_session_snr(obs_limited, snr_field="S1C")
+    # Auto-detect RINEX version and field names
+    pr_field, snr_field, carr_field, rinex_version = detect_rinex_fields(obs)
+    results["rinex_version"] = rinex_version
+
+    # Count total GPS satellites in file
+    results["n_sats_total"] = len([
+        s for s in obs.sv.values if str(s).startswith("G")
+    ])
+
+    # Signal quality analysis using detected field names
+    results["snr_results"]    = analyse_session_snr(obs_limited, snr_field=snr_field)
     results["cmc_results"]    = analyse_session_cmc(obs_limited)
     results["combined_flags"] = combine_snr_cmc_flags(
         results["snr_results"], results["cmc_results"]
@@ -345,7 +341,7 @@ def process_session(obs_path, nav_path, ref_lat, ref_lon, ref_h, max_epochs):
 
         for sat in gps_sats:
             try:
-                pr = float(obs.sel(sv=sat, time=epoch)["C1C"].values)
+                pr = float(obs.sel(sv=sat, time=epoch)[pr_field].values)
                 if np.isnan(pr) or pr < 1e6:
                     continue
                 ep_time, eph = get_first_valid_ephemeris(nav, sat, gps_time_of_week)
@@ -493,7 +489,6 @@ def make_snr_heatmap(snr_results):
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
 
-    # UNB GGE logo
     logo_path = Path("assets/gge_transparent.png")
     if logo_path.exists():
         st.image(str(logo_path), use_container_width=True)
@@ -535,20 +530,23 @@ with st.sidebar:
 
     obs_file = st.file_uploader(
         "GPS measurement file",
-        type=["rnx", "obs", "25o", "24o", "23o"],
+        type=["rnx", "obs", "25o", "24o", "23o", "21o", "20o", "19o", "18o", "17o"],
         help=(
-            "The raw measurement file from your GPS session (RINEX observation file). "
+            "The raw measurement file from your GPS session. "
+            "Supports RINEX 2 and RINEX 3 formats. "
             "From NRCan: file ending in _MO.rnx. "
-            "From Trimble/Leica: export RINEX 3 from the manufacturer software."
+            "From Trimble/Leica: export RINEX 3 from the manufacturer software. "
+            "From IGS archive: files ending in .21o, .22o etc. are RINEX 2."
         )
     )
 
     nav_file = st.file_uploader(
         "Satellite orbit file",
-        type=["rnx", "25n", "24n", "23n"],
+        type=["rnx", "25n", "24n", "23n", "22n", "21n", "20n", "19n", "18n", "17n"],
         help=(
             "Describes where each GPS satellite was in space throughout the day. "
-            "Download free from NRCan for the same date as your observation file."
+            "Download free from NRCan for the same date as your observation file. "
+            "Must cover the same date as the observation file."
         )
     )
 
@@ -595,7 +593,6 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    # Help page link — works on both local and Streamlit Cloud
     st.markdown(
         '<div class="help-link-box">'
         '📖 <a href="/1_Understanding_Results" target="_self" '
@@ -612,6 +609,7 @@ with st.sidebar:
 st.title("GNSS Positioning Quality Analyzer")
 st.caption(
     "Upload a GPS measurement file and satellite orbit file. "
+    "Supports RINEX 2 and RINEX 3 formats. "
     "Receive a complete signal quality and positioning accuracy report."
 )
 
@@ -629,7 +627,7 @@ if not run_button:
         st.markdown(
             "Download GPS measurement and orbit files from "
             "[NRCan CORS](https://webapp.csrs-scrs.nrcan.gc.ca/geod/data-donnees/cacs-scca.php) "
-            "or export from your Trimble/Leica receiver."
+            "or any IGS station. Supports RINEX 2 and RINEX 3."
         )
     with col2:
         st.markdown("**Step 2 — Enter your position**")
@@ -697,7 +695,8 @@ else:
     if results["n_processed"] < 4:
         st.error(
             "Not enough observations processed. "
-            "Check that your reference coordinates are correct and files are valid RINEX 3."
+            "Check that your reference coordinates are correct, "
+            "both files cover the same date, and the observation file contains GPS data."
         )
         st.stop()
 
@@ -712,6 +711,13 @@ else:
     dops        = results["dop_list"]
     mean_hdop   = np.nanmean([d.get("HDOP", np.nan) for d in dops])
     mean_pdop   = np.nanmean([d.get("PDOP", np.nan) for d in dops])
+
+    # RINEX version info badge
+    st.markdown(
+        f'<div class="rinex-badge">📄 {results["rinex_version"]} · '
+        f'{results["n_sats_total"]} GPS satellites in file</div>',
+        unsafe_allow_html=True
+    )
 
     # Session quality banner
     summary_text, banner_cls = generate_session_summary(
@@ -805,17 +811,6 @@ else:
                   help="Twice the distance RMS — contains 95% of positions.")
         d4.metric("Mean horizontal error", f"{stats.get('mean_H', 0):.1f} m",
                   help="Simple arithmetic mean of all horizontal errors.")
-
-    st.divider()
-
-    # ── Accuracy expectations ─────────────────────────────────────────────────
-    st.subheader("What can I use this data for?")
-    if not advanced_mode:
-        st.caption(
-            "Based on your CEP50 accuracy, here are the surveying and mapping applications "
-            "your session is suitable for."
-        )
-    st.markdown(accuracy_expectations_table(stats["CEP50"]), unsafe_allow_html=True)
 
     st.divider()
 
