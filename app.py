@@ -14,7 +14,8 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-
+import threading
+import requests
 import georinex as gr
 import matplotlib.pyplot as plt
 import numpy as np
@@ -56,6 +57,25 @@ st.set_page_config(
     layout="wide",
 )
 
+def _keep_alive():
+    """Ping this app every 5 minutes to prevent Streamlit Cloud sleep."""
+    import time
+    while True:
+        time.sleep(270)  # 4.5 minutes
+        try:
+            requests.get(
+                "https://gnss-saha.streamlit.app",
+                timeout=10,
+                headers={"User-Agent": "KeepAlive/1.0"}
+            )
+        except Exception:
+            pass
+
+# Start keep-alive thread once per session
+if "keep_alive_started" not in st.session_state:
+    st.session_state["keep_alive_started"] = True
+    t = threading.Thread(target=_keep_alive, daemon=True)
+    t.start()
 
 st.markdown(
     """

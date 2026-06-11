@@ -6,3 +6,4 @@ matplotlib
 pymap3d
 pandas
 xarray
+requests
