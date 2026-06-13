@@ -831,17 +831,9 @@ with st.sidebar:
     obs_file = st.file_uploader(
         "GPS measurement file",
         type=[
-            "rnx",
-            "obs",
-            "25o",
-            "24o",
-            "23o",
-            "22o",
-            "21o",
-            "20o",
-            "19o",
-            "18o",
-            "17o",
+            "rnx", "obs",
+            "25o", "24o", "23o", "22o", "21o", "20o", "19o", "18o", "17o",
+            "25O", "24O", "23O", "22O", "21O", "20O", "19O", "18O", "17O",
         ],
         help=(
             "The raw measurement file from your GPS session. "
@@ -856,15 +848,9 @@ with st.sidebar:
         "Satellite orbit file",
         type=[
             "rnx",
-            "25n",
-            "24n",
-            "23n",
-            "22n",
-            "21n",
-            "20n",
-            "19n",
-            "18n",
-            "17n",
+            "25n", "24n", "23n", "22n", "21n", "20n", "19n", "18n", "17n",
+            "25N", "24N", "23N", "22N", "21N", "20N", "19N", "18N", "17N",
+            "23g", "23G", "23l", "23L", "23c", "23C",
         ],
         help=(
             "Describes where each GPS satellite was in space throughout the day. "
