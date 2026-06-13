@@ -788,7 +788,7 @@ with st.sidebar:
     logo_path = Path("assets/gge_transparent.png")
 
     if logo_path.exists():
-        st.image(str(logo_path), use_container_width=True)
+        st.image(str(logo_path), width='stretch')
     else:
         st.markdown(
             """
@@ -908,7 +908,7 @@ with st.sidebar:
     run_button = st.button(
         "Analyze session",
         type="primary",
-        use_container_width=True,
+        width='stretch',
     )
 
     st.markdown("---")
@@ -1263,7 +1263,7 @@ else:
             list(eh),
         )
 
-        st.pyplot(fig_scatter, use_container_width=True)
+        st.pyplot(fig_scatter, width='stretch')
         plt.close(fig_scatter)
 
         if not advanced_mode:
@@ -1277,7 +1277,7 @@ else:
             fig_snr = make_snr_heatmap(results["snr_results"])
 
             if fig_snr is not None:
-                st.pyplot(fig_snr, use_container_width=True)
+                st.pyplot(fig_snr, width='stretch')
                 plt.close(fig_snr)
 
                 if not advanced_mode:
@@ -1299,7 +1299,7 @@ else:
         results["epoch_interval_seconds"],
     )
 
-    st.pyplot(fig_ts, use_container_width=True)
+    st.pyplot(fig_ts, width='stretch')
     plt.close(fig_ts)
 
     if not advanced_mode:
