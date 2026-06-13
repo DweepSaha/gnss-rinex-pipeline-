@@ -20,6 +20,7 @@ import georinex as gr
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
+from src.gnss_pipeline.pdf_report import build_pdf_report
 
 from src.gnss_pipeline.accuracy import (
     compute_accuracy_statistics,
@@ -1308,7 +1309,46 @@ else:
             "Middle: height error. "
             "Bottom: satellite geometry score."
         )
+    # ── PDF Download ──────────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Download report")
 
+    if not advanced_mode:
+        st.caption(
+            "Download a PDF report containing all accuracy metrics, "
+            "signal quality flags, plots, and a plain-English interpretation."
+        )
+
+    with st.spinner("Generating PDF report..."):
+        try:
+            pdf_bytes = build_pdf_report(
+                results        = results,
+                stats          = stats,
+                flags          = flags,
+                mean_hdop      = mean_hdop,
+                mean_pdop      = mean_pdop,
+                ref_lat        = ref_lat,
+                ref_lon        = ref_lon,
+                ref_h          = ref_h,
+                obs_filename   = obs_file.name if obs_file else "",
+                nav_filename   = nav_file.name if nav_file else "",
+                fig_scatter    = fig_scatter,
+                fig_snr        = fig_snr if results["snr_results"] else None,
+                fig_timeseries = fig_ts,
+            )
+
+            st.download_button(
+                label        = "📄 Download PDF Report",
+                data         = pdf_bytes,
+                file_name    = "GNSS_Quality_Report.pdf",
+                mime         = "application/pdf",
+                use_container_width = True,
+                type         = "primary",
+            )
+
+        except Exception as e:
+            st.error(f"PDF generation failed: {e}")
+            
     # ── Footer ────────────────────────────────────────────────────────────────
 
     st.divider()

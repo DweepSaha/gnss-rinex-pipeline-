@@ -7,3 +7,4 @@ pymap3d
 pandas
 xarray
 requests
+fpdf2
