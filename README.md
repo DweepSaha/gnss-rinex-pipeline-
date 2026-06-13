@@ -73,3 +73,26 @@ No installation required — runs in any web browser.
 ---
 
 ## Project structure
+gnss-rinex-pipeline/
+
+├── app.py                          # Streamlit dashboard
+├── pages/
+│   └── 1_Understanding_Results.py  # Help and glossary page
+├── src/gnss_pipeline/
+│   ├── ephemeris.py                # Satellite position computation
+│   ├── spp_solver.py               # Weighted least squares SPP
+│   ├── corrections.py              # Klobuchar, troposphere, clock
+│   ├── cmc_analysis.py             # Multipath detection
+│   ├── snr_analysis.py             # Signal quality flags
+│   ├── rinex_cleaner.py            # Septentrio RINEX preprocessing
+│   ├── pdf_report.py               # PDF report generation
+│   ├── accuracy.py                 # CEP50, RMSE, statistics
+│   └── dop.py                      # HDOP, PDOP computation
+└── assets/
+└── gge_transparent.png         # UNB GGE department logo
+
+## Author
+**Dweep Saha**  
+2nd-year BSc Geomatics Engineering  
+University of New Brunswick  
+Department of Geodesy and Geomatics Engineering
