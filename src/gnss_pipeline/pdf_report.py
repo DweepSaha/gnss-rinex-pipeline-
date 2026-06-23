@@ -30,11 +30,15 @@ C_MID_GREY   = (180, 180, 190)
 C_TEXT       = ( 30,  30,  45)
 
 
-def _fig_to_png_bytes(fig: plt.Figure) -> bytes:
-    """Save a matplotlib figure to PNG bytes in memory."""
+def _fig_to_png_bytes(fig) -> bytes:
+    """Convert matplotlib or Plotly figure to PNG bytes."""
+    import io
+    # Check if it is a Plotly figure
+    if hasattr(fig, "to_image"):
+        return fig.to_image(format="png", width=1000, height=500, scale=2)
+    # Fallback for matplotlib
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
-                facecolor="white")
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="white")
     buf.seek(0)
     return buf.read()
 
