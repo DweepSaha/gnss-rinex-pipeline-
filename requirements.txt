@@ -9,3 +9,5 @@ xarray
 requests
 fpdf2
 plotly
+
+kaleido
