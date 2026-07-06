@@ -400,6 +400,7 @@ def process_session(obs_path, nav_path, ref_lat, ref_lon, ref_h, max_epochs):
         "dop_list": [], "n_processed": 0,
         "snr_results": {}, "cmc_results": {},
         "combined_flags": {},
+        "sat_sky_track": {},
         "rinex_version": "Unknown",
         "n_sats_total": 0,
         "epoch_interval_seconds": 30.0,
@@ -473,6 +474,11 @@ def process_session(obs_path, nav_path, ref_lat, ref_lon, ref_h, max_epochs):
                 azimuths[sat_str]            = np.radians(az)
                 ephemerides[sat_str]         = eph
                 eccentric_anomalies[sat_str] = 0.0
+                sky_track = results["sat_sky_track"].setdefault(
+                    sat_str, {"az": [], "el": []}
+                )
+                sky_track["az"].append(float(az))
+                sky_track["el"].append(float(el))
             except Exception:
                 continue
         if len(pseudoranges) < 4:
@@ -723,6 +729,115 @@ def make_snr_heatmap(snr_results):
         ),
         margin=dict(l=60, r=20, t=50, b=50),
         height=max(300, len(sats) * 28),
+    )
+    return fig
+
+
+def make_sky_plot(sat_sky_track, combined_flags, snr_results):
+    """Polar sky plot: r = 90 - elevation (deg), theta = azimuth (deg, compass)."""
+    if not sat_sky_track:
+        return None
+
+    fig = go.Figure()
+
+    for flag_name in ["clean", "suspect", "multipath"]:
+        fig.add_trace(go.Scatterpolar(
+            r=[np.nan], theta=[np.nan], mode="lines",
+            line=dict(color=FLAG_COLORS[flag_name], width=2.5),
+            name=flag_name.capitalize(),
+            legendgroup=flag_name, showlegend=True,
+            hoverinfo="skip",
+        ))
+
+    for sat in sorted(sat_sky_track.keys()):
+        track = sat_sky_track[sat]
+        az_list = track.get("az", [])
+        el_list = track.get("el", [])
+        n = len(az_list)
+        if n == 0:
+            continue
+
+        flag  = combined_flags.get(sat, "clean")
+        color = FLAG_COLORS.get(flag, "#1D9E75")
+        r_vals = [90.0 - el for el in el_list]
+
+        snr_arr = np.full(n, np.nan)
+        raw_snr = snr_results.get(sat, {}).get("snr") if snr_results else None
+        if raw_snr is not None:
+            raw_snr = np.asarray(raw_snr, dtype=float)
+            k = min(n, len(raw_snr))
+            snr_arr[:k] = raw_snr[:k]
+
+        hovertext = []
+        for i in range(n):
+            if np.isnan(snr_arr[i]):
+                snr_str = "N/A"
+            else:
+                snr_str = f"{snr_arr[i]:.1f} dB-Hz"
+            hovertext.append(
+                f"Satellite: {sat}<br>"
+                f"Azimuth: {az_list[i]:.1f} deg<br>"
+                f"Elevation: {el_list[i]:.1f} deg<br>"
+                f"SNR: {snr_str}"
+            )
+
+        fig.add_trace(go.Scatterpolar(
+            r=r_vals, theta=az_list, mode="lines",
+            line=dict(color=color, width=1.8),
+            name=flag.capitalize(),
+            legendgroup=flag,
+            showlegend=False,
+            hovertext=hovertext, hoverinfo="text",
+        ))
+        fig.add_trace(go.Scatterpolar(
+            r=[r_vals[-1]], theta=[az_list[-1]], mode="markers",
+            marker=dict(color=color, size=10, line=dict(color="#fff", width=1)),
+            legendgroup=flag, showlegend=False,
+            hovertext=[hovertext[-1]], hoverinfo="text",
+        ))
+        mid = n // 2
+        fig.add_trace(go.Scatterpolar(
+            r=[r_vals[mid]], theta=[az_list[mid]], mode="text",
+            text=[sat], textposition="top center",
+            textfont=dict(color=color, size=10),
+            legendgroup=flag, showlegend=False,
+            hoverinfo="skip",
+        ))
+
+    mask_theta = np.linspace(0, 360, 181)
+    fig.add_trace(go.Scatterpolar(
+        r=[75.0] * len(mask_theta), theta=mask_theta, mode="lines",
+        line=dict(color="#666", width=1, dash="dash"),
+        name="15 deg elevation mask",
+        showlegend=False, hoverinfo="skip",
+    ))
+
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#0e0e1a", plot_bgcolor="#0e0e1a",
+        title=dict(
+            text="Satellite Sky Plot",
+            font=dict(size=13, color="#ccccdd"), x=0.5,
+        ),
+        polar=dict(
+            bgcolor="#0e0e1a",
+            radialaxis=dict(
+                range=[0, 90],
+                tickvals=[0, 15, 30, 45, 60, 75, 90],
+                ticktext=["90", "75", "60", "45", "30", "15", "0"],
+                tickfont=dict(color="#aaa", size=9),
+                gridcolor="#333", linecolor="#333",
+            ),
+            angularaxis=dict(
+                rotation=90, direction="clockwise",
+                tickfont=dict(color="#aaa", size=9),
+                gridcolor="#333", linecolor="#333",
+            ),
+        ),
+        legend=dict(bgcolor="#1a1a2e", bordercolor="#333", borderwidth=1,
+                    font=dict(color="#ccc", size=10)),
+        margin=dict(l=30, r=30, t=50, b=30),
+        width=500, height=500,
     )
     return fig
 
@@ -1075,6 +1190,24 @@ else:
                 "Signal quality assessed using CMC analysis only."
             )
 
+    st.subheader("Satellite sky tracks")
+    fig_sky = make_sky_plot(
+        results.get("sat_sky_track", {}),
+        results["combined_flags"],
+        results["snr_results"],
+    )
+    if fig_sky is not None:
+        st.plotly_chart(fig_sky, use_container_width=True)
+        if not advanced_mode:
+            st.caption(
+                "Each line traces a satellite's path across the sky during the session. "
+                "Centre = directly overhead. Edge = horizon. "
+                "Dashed circle = 15 degree elevation mask. "
+                "Dot = satellite's final tracked position."
+            )
+    else:
+        st.info("No satellite sky track data was available for this session.")
+
     st.subheader("Error over time")
     fig_ts = make_error_timeseries(
         results["errors_h"], results["errors_v"],
@@ -1108,6 +1241,7 @@ else:
                 obs_filename   = obs_file.name if obs_file else "",
                 nav_filename   = nav_file.name if nav_file else "",
                 fig_scatter    = fig_scatter,
+                fig_sky        = fig_sky,
                 fig_snr        = fig_snr if results["snr_results"] else None,
                 fig_timeseries = fig_ts,
             )

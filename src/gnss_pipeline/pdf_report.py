@@ -30,12 +30,12 @@ C_MID_GREY   = (180, 180, 190)
 C_TEXT       = ( 30,  30,  45)
 
 
-def _fig_to_png_bytes(fig) -> bytes:
+def _fig_to_png_bytes(fig, width: int = 1000, height: int = 500) -> bytes:
     """Convert matplotlib or Plotly figure to PNG bytes."""
     import io
     # Check if it is a Plotly figure
     if hasattr(fig, "to_image"):
-        return fig.to_image(format="png", width=1000, height=500, scale=2)
+        return fig.to_image(format="png", width=width, height=height, scale=2)
     # Fallback for matplotlib
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="white")
@@ -154,6 +154,7 @@ def build_pdf_report(
     obs_filename:   str = "",
     nav_filename:   str = "",
     fig_scatter:    Optional[plt.Figure] = None,
+    fig_sky:        Optional[plt.Figure] = None,
     fig_snr:        Optional[plt.Figure] = None,
     fig_timeseries: Optional[plt.Figure] = None,
 ) -> bytes:
@@ -321,9 +322,23 @@ def build_pdf_report(
         pdf.ln(2)
         pdf.embed_png(_fig_to_png_bytes(fig_scatter), w=140)
 
-    # Section 7 - SNR heatmap
+    # Section 7 - Satellite sky plot
+    if fig_sky is not None:
+        pdf.section_title("7. Satellite Sky Plot")
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(*C_MID_GREY)
+        pdf.cell(0, 5,
+                 "Centre = directly overhead. Edge = horizon. "
+                 "Dashed circle = 15 degree elevation mask. "
+                 "Colour shows satellite quality flag.",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_text_color(*C_TEXT)
+        pdf.ln(2)
+        pdf.embed_png(_fig_to_png_bytes(fig_sky, width=800, height=800), w=120)
+
+    # Section 8 - SNR heatmap
     if fig_snr is not None:
-        pdf.section_title("7. Signal Strength Heatmap (SNR)")
+        pdf.section_title("8. Signal Strength Heatmap (SNR)")
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(*C_MID_GREY)
         pdf.cell(0, 5,
@@ -335,10 +350,10 @@ def build_pdf_report(
         pdf.ln(2)
         pdf.embed_png(_fig_to_png_bytes(fig_snr), w=175)
 
-    # Section 8 - Error time series
+    # Section 9 - Error time series
     if fig_timeseries is not None:
         pdf.add_page()
-        pdf.section_title("8. Error and DOP Time Series")
+        pdf.section_title("9. Error and DOP Time Series")
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(*C_MID_GREY)
         pdf.cell(0, 5,
@@ -350,9 +365,9 @@ def build_pdf_report(
         pdf.ln(2)
         pdf.embed_png(_fig_to_png_bytes(fig_timeseries), w=175)
 
-    # Section 9 - Interpretation
+    # Section 10 - Interpretation
     pdf.add_page()
-    pdf.section_title("9. Plain-English Interpretation")
+    pdf.section_title("10. Plain-English Interpretation")
 
     if cep50 < 20:
         acc_interp = (
@@ -418,8 +433,8 @@ def build_pdf_report(
         pdf.multi_cell(0, 5, para)
         pdf.ln(2)
 
-    # Section 10 - Limitations
-    pdf.section_title("10. Limitations and Disclaimers")
+    # Section 11 - Limitations
+    pdf.section_title("11. Limitations and Disclaimers")
 
     limitations = [
         (
