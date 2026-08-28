@@ -11,3 +11,6 @@ fpdf2
 plotly
 
 kaleido
+fastapi
+uvicorn
+python-multipart

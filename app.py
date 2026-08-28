@@ -23,6 +23,7 @@ import numpy as np
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src.gnss_pipeline.accuracy import (
     compute_accuracy_statistics,
@@ -49,10 +50,19 @@ SPEED_OF_LIGHT = 299_792_458.0
 GPS_EPOCH = np.datetime64("1980-01-06T00:00:00", "s")
 
 FLAG_COLORS = {
-    "clean":     "#1D9E75",
-    "suspect":   "#BA7517",
-    "multipath": "#D85A30",
+    "clean":     "#00ff88",
+    "suspect":   "#ffaa00",
+    "multipath": "#ff4444",
 }
+
+# Unified dark neon Plotly theme (mission control aesthetic)
+NEON_GREEN = "#00ff88"
+NEON_CYAN  = "#00d4ff"
+NEON_AMBER = "#ffaa00"
+NEON_RED   = "#ff4444"
+NEON_PAPER_BG = "#000000"
+NEON_PLOT_BG  = "#000000"
+NEON_GRID     = "#111111"
 
 st.set_page_config(
     page_title="GNSS Quality Analyzer",
@@ -83,24 +93,38 @@ if "keep_alive_started" not in st.session_state:
     t.start()
 
 
-# Global CSS
+# Google Font (Space Mono) - loaded via a plain <link> tag rather than a
+# CSS @import inside <style>, since some Streamlit deployments block @import.
+st.markdown(
+    '<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" '
+    'rel="stylesheet">',
+    unsafe_allow_html=True,
+)
+
+# Global CSS - unchanged from the original app, except .quality-banner-*,
+# .metric-card-*, and .rinex-badge now use the neon glow colour palette.
+# Nothing here touches Streamlit's own classes (.stApp, .stSidebar,
+# .block-container, or any st-prefixed selector).
 
 st.markdown("""
 <style>
 .quality-banner-good {
-    background:#1a3d2b;border-left:4px solid #1D9E75;
+    background:#000000;border-left:4px solid #00ff88;
     padding:12px 16px;border-radius:6px;margin-bottom:16px;
-    color:#a8f0c6;font-size:15px;line-height:1.6;
+    color:#8affc0;font-size:15px;line-height:1.6;
+    font-family:'Space Mono',monospace;
 }
 .quality-banner-ok {
-    background:#3d2e0a;border-left:4px solid #BA7517;
+    background:#000000;border-left:4px solid #ffaa00;
     padding:12px 16px;border-radius:6px;margin-bottom:16px;
-    color:#f5d08a;font-size:15px;line-height:1.6;
+    color:#ffd98a;font-size:15px;line-height:1.6;
+    font-family:'Space Mono',monospace;
 }
 .quality-banner-poor {
-    background:#3d1010;border-left:4px solid #D85A30;
+    background:#000000;border-left:4px solid #ff4444;
     padding:12px 16px;border-radius:6px;margin-bottom:16px;
-    color:#f5a58a;font-size:15px;line-height:1.6;
+    color:#ff9a8a;font-size:15px;line-height:1.6;
+    font-family:'Space Mono',monospace;
 }
 .badge-green {
     background:#1D9E75;color:white;padding:4px 12px;
@@ -115,20 +139,28 @@ st.markdown("""
     border-radius:12px;font-size:14px;font-weight:500;
 }
 .metric-card-green {
-    background:#0d2018;border:1px solid #1D9E75;border-radius:8px;
+    background:#000000;border:1px solid #00ff88;border-radius:8px;
     padding:14px 16px;margin-bottom:8px;
+    box-shadow:0 0 8px #00ff8899, 0 0 16px #00ff8833;
+    font-family:'Space Mono',monospace;
 }
 .metric-card-amber {
-    background:#2a1f08;border:1px solid #BA7517;border-radius:8px;
+    background:#000000;border:1px solid #ffaa00;border-radius:8px;
     padding:14px 16px;margin-bottom:8px;
+    box-shadow:0 0 8px #ffaa0099, 0 0 16px #ffaa0033;
+    font-family:'Space Mono',monospace;
 }
 .metric-card-red {
-    background:#2a0d0d;border:1px solid #D85A30;border-radius:8px;
+    background:#000000;border:1px solid #ff4444;border-radius:8px;
     padding:14px 16px;margin-bottom:8px;
+    box-shadow:0 0 8px #ff444499, 0 0 16px #ff444433;
+    font-family:'Space Mono',monospace;
 }
 .metric-card-neutral {
-    background:#1a1a2e;border:1px solid #444;border-radius:8px;
+    background:#000000;border:1px solid #00d4ff;border-radius:8px;
     padding:14px 16px;margin-bottom:8px;
+    box-shadow:0 0 8px #00d4ff99, 0 0 16px #00d4ff33;
+    font-family:'Space Mono',monospace;
 }
 .metric-title {
     font-size:11px;text-transform:uppercase;letter-spacing:0.06em;
@@ -156,9 +188,9 @@ st.markdown("""
     padding:10px 12px;margin-top:8px;text-align:center;
 }
 .rinex-badge {
-    background:#1a1a2e;border:1px solid #444;border-radius:4px;
-    padding:4px 10px;font-size:11px;color:#888;display:inline-block;
-    margin-bottom:8px;
+    background:#000000;border:1px solid #00ff88;border-radius:4px;
+    padding:4px 10px;font-size:11px;color:#00ff88;display:inline-block;
+    margin-bottom:8px;font-family:'Space Mono',monospace;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -281,6 +313,113 @@ def metric_card(title, value, description,
         <div class="{value_class}">{value}</div>
         <div class="metric-desc">{description}</div>
     </div>"""
+
+
+def build_animated_metrics_html(cep50, cep95, rmse_h, rmse_v, mean_hdop, n_processed):
+    """Build a self-contained mission-control panel (Anime.js count-up) for
+    st.components.v1.html(). Values are interpolated from Python; the JS/CSS
+    wrapper is a plain string so none of its braces need escaping."""
+    metrics = [
+        ("CEP50",           cep50,               1, " M"),
+        ("CEP95",           cep95,               1, " M"),
+        ("RMSE HORIZONTAL", rmse_h,              1, " M"),
+        ("RMSE VERTICAL",   rmse_v,              1, " M"),
+        ("MEAN HDOP",       mean_hdop,           2, ""),
+        ("OBSERVATIONS",    float(n_processed),  0, ""),
+    ]
+    cards = ""
+    for label, value, decimals, suffix in metrics:
+        safe_value = value if np.isfinite(value) else 0.0
+        cards += f"""
+        <div class="amc-card">
+            <div class="amc-label">{label}</div>
+            <div class="amc-value" data-target="{safe_value:.4f}"
+                 data-decimals="{decimals}" data-suffix="{suffix}">0</div>
+        </div>"""
+
+    template = """
+    <div class="amc-panel">
+        <div class="amc-scanlines"></div>
+        <div class="amc-grid">__CARDS__</div>
+    </div>
+    <style>
+        html, body { margin:0; padding:0; background:#000000; }
+        .amc-panel {
+            font-family: 'Space Mono', 'Courier New', monospace;
+            background:#000000; border:1px solid #00ff88; border-radius:2px;
+            box-shadow: 0 0 8px #00ff8866, 0 0 20px #00ff8822;
+            padding:16px; position:relative; overflow:hidden;
+            height:240px; box-sizing:border-box;
+        }
+        .amc-scanlines {
+            position:absolute; top:0; left:0; right:0; bottom:0;
+            pointer-events:none;
+            background: repeating-linear-gradient(
+                to bottom,
+                rgba(0,255,136,0.1) 0px, rgba(0,255,136,0.1) 1px,
+                transparent 1px, transparent 2px
+            );
+        }
+        .amc-grid {
+            position:relative; z-index:1;
+            display:grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap:12px; height:100%;
+        }
+        .amc-card {
+            border:1px solid #0d2018; border-radius:2px;
+            background:#000000;
+            display:flex; flex-direction:column;
+            align-items:center; justify-content:center;
+            padding:8px; text-align:center;
+            transition: box-shadow 0.2s ease;
+        }
+        .amc-card.amc-pulse {
+            animation: amc-pulse-anim 0.9s ease-out;
+        }
+        @keyframes amc-pulse-anim {
+            0%   { box-shadow: 0 0 0px #00ff8800; }
+            35%  { box-shadow: 0 0 18px #00ff88cc, 0 0 32px #00ff8866; }
+            100% { box-shadow: 0 0 0px #00ff8800; }
+        }
+        .amc-label {
+            font-size:11px; text-transform:uppercase; letter-spacing:0.12em;
+            color:#5fae86; margin-bottom:6px;
+        }
+        .amc-value {
+            font-size:26px; font-weight:700; color:#00ff88;
+            text-shadow: 0 0 10px #00ff8899;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+    <script>
+        document.querySelectorAll('.amc-value').forEach(function (el) {
+            var target   = parseFloat(el.getAttribute('data-target'));
+            var decimals = parseInt(el.getAttribute('data-decimals'), 10);
+            var suffix   = el.getAttribute('data-suffix') || '';
+            var counter  = { val: 0 };
+            anime({
+                targets: counter,
+                val: target,
+                duration: 1500,
+                easing: 'easeOutExpo',
+                update: function () {
+                    el.innerHTML = counter.val.toFixed(decimals) + suffix;
+                },
+                complete: function () {
+                    el.innerHTML = target.toFixed(decimals) + suffix;
+                    var card = el.closest('.amc-card');
+                    card.classList.add('amc-pulse');
+                    setTimeout(function () {
+                        card.classList.remove('amc-pulse');
+                    }, 900);
+                },
+            });
+        });
+    </script>
+    """
+    return template.replace("__CARDS__", cards)
 
 
 def hdop_card_class(hdop):
@@ -525,11 +664,11 @@ def save_upload(uploaded_file):
 
 # Plotly charts
 
-def _axis(title_text, title_color="#aaa", **kwargs):
+def _axis(title_text, title_color=NEON_CYAN, **kwargs):
     """Helper: build a clean Plotly axis dict with correct title syntax."""
     return dict(
         title=dict(text=title_text, font=dict(color=title_color)),
-        tickfont=dict(color="#aaa"),
+        tickfont=dict(color=NEON_GREEN),
         **kwargs,
     )
 
@@ -538,35 +677,46 @@ def make_scatter_plot(north_errors, east_errors, errors_h):
     cep50 = float(np.percentile(errors_h, 50))
     cep95 = float(np.percentile(errors_h, 95))
     theta = np.linspace(0, 2 * np.pi, 300)
-    horiz = np.sqrt(np.array(north_errors)**2 + np.array(east_errors)**2)
+    east_arr  = np.asarray(east_errors, dtype=float)
+    north_arr = np.asarray(north_errors, dtype=float)
+    horiz = np.sqrt(north_arr**2 + east_arr**2)
+    n = len(east_arr)
+    cmin = float(np.min(horiz)) if n else 0.0
+    cmax = float(np.max(horiz)) if n else 1.0
+
+    neon_colorscale = [[0.0, NEON_CYAN], [0.5, NEON_AMBER], [1.0, NEON_RED]]
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=cep95 * np.cos(theta), y=cep95 * np.sin(theta),
         mode="lines",
-        line=dict(color="#D85A30", width=1.5, dash="dash"),
+        line=dict(color=NEON_RED, width=1.5, dash="dash"),
         name=f"CEP95 = {cep95:.1f} m",
         hoverinfo="skip",
     ))
     fig.add_trace(go.Scatter(
         x=cep50 * np.cos(theta), y=cep50 * np.sin(theta),
         mode="lines",
-        line=dict(color="#1D9E75", width=1.8, dash="dash"),
+        line=dict(color=NEON_GREEN, width=1.8, dash="dash"),
         name=f"CEP50 = {cep50:.1f} m",
         hoverinfo="skip",
     ))
     fig.add_trace(go.Scatter(
-        x=east_errors, y=north_errors,
+        x=east_arr, y=north_arr,
         mode="markers",
         marker=dict(
             color=horiz,
-            colorscale=[[0.0, "#1D9E75"], [0.4, "#BA7517"], [1.0, "#D85A30"]],
-            size=5, opacity=0.75,
-            colorbar=dict(title="Horiz. error (m)", thickness=12, len=0.6),
+            colorscale=neon_colorscale, cmin=cmin, cmax=cmax,
+            size=5, opacity=0.85,
+            colorbar=dict(
+                title=dict(text="Horiz. error (m)", font=dict(color=NEON_CYAN)),
+                tickfont=dict(color=NEON_GREEN),
+                thickness=12, len=0.6,
+            ),
             showscale=True,
         ),
         name="Position fixes",
-        customdata=np.column_stack([north_errors, east_errors, horiz]),
+        customdata=np.column_stack([north_arr, east_arr, horiz]),
         hovertemplate=(
             "<b>Position fix</b><br>"
             "East error: %{x:.1f} m<br>"
@@ -577,28 +727,62 @@ def make_scatter_plot(north_errors, east_errors, errors_h):
     ))
     fig.add_trace(go.Scatter(
         x=[0], y=[0], mode="markers",
-        marker=dict(symbol="cross", size=14, color="#FF4444",
-                    line=dict(color="#FF4444", width=2.5)),
+        marker=dict(symbol="cross", size=14, color=NEON_RED,
+                    line=dict(color=NEON_RED, width=2.5)),
         name="True position",
         hovertemplate="<b>True position</b><extra></extra>",
     ))
+
+    # Animation: position fixes appear one-by-one. The base trace already
+    # holds the full set (so static/PDF export is complete); pressing Play
+    # replays the progressive reveal via frames.
+    frames = []
+    for i in range(1, n + 1):
+        frames.append(go.Frame(
+            name=str(i),
+            traces=[2],
+            data=[go.Scatter(
+                x=east_arr[:i], y=north_arr[:i],
+                marker=dict(
+                    color=horiz[:i], colorscale=neon_colorscale,
+                    cmin=cmin, cmax=cmax, size=5, opacity=0.85,
+                ),
+            )],
+        ))
+    fig.frames = frames
+
     fig.update_layout(
         template="plotly_dark",
-        paper_bgcolor="#0e0e1a", plot_bgcolor="#0e0e1a",
+        paper_bgcolor=NEON_PAPER_BG, plot_bgcolor=NEON_PLOT_BG,
         title=dict(
             text=f"Position Scatter  |  CEP50 = {cep50:.1f} m  |  CEP95 = {cep95:.1f} m",
-            font=dict(size=13, color="#ccccdd"), x=0.5,
+            font=dict(size=13, color=NEON_CYAN), x=0.5,
         ),
         xaxis=_axis("East error (m)",
-                    showgrid=True, gridcolor="#1e1e2e",
-                    zeroline=True, zerolinecolor="#444"),
+                    showgrid=True, gridcolor=NEON_GRID,
+                    zeroline=True, zerolinecolor="#333"),
         yaxis=_axis("North error (m)",
-                    showgrid=True, gridcolor="#1e1e2e",
-                    zeroline=True, zerolinecolor="#444",
+                    showgrid=True, gridcolor=NEON_GRID,
+                    zeroline=True, zerolinecolor="#333",
                     scaleanchor="x"),
-        legend=dict(bgcolor="#1a1a2e", bordercolor="#333", borderwidth=1,
-                    font=dict(color="#ccc", size=10)),
+        legend=dict(bgcolor="#050508", bordercolor="#1a1a1a", borderwidth=1,
+                    font=dict(color=NEON_GREEN, size=10)),
         margin=dict(l=50, r=20, t=50, b=50), height=480,
+        updatemenus=[dict(
+            type="buttons", showactive=False,
+            x=0.02, y=1.12, xanchor="left", yanchor="top",
+            bgcolor="#000000", bordercolor=NEON_GREEN,
+            font=dict(color=NEON_GREEN),
+            buttons=[dict(
+                label="Play",
+                method="animate",
+                args=[None, dict(
+                    frame=dict(duration=20, redraw=True),
+                    transition=dict(duration=20),
+                    fromcurrent=False, mode="immediate",
+                )],
+            )],
+        )],
     )
     return fig
 
@@ -611,34 +795,40 @@ def make_error_timeseries(errors_h, errors_v, dop_list,
     mean_v     = float(np.nanmean(errors_v))
     cep50      = float(np.percentile(errors_h, 50))
 
+    dim_cyan  = "rgba(0,212,255,0.45)"
+    dim_red   = "rgba(255,68,68,0.45)"
+    dim_amber = "rgba(255,170,0,0.45)"
+
+    n = len(errors_h)
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=epochs_min, y=errors_h, mode="lines", name="Horizontal error",
-        line=dict(color="#534AB7", width=1.5),
+        line=dict(color=NEON_CYAN, width=1.5),
         hovertemplate="Time: %{x:.2f} min<br>Horiz. error: %{y:.1f} m<extra></extra>",
         yaxis="y1",
     ))
-    fig.add_hline(y=mean_h, line_dash="dash", line_color="#1D9E75", line_width=1,
+    fig.add_hline(y=mean_h, line_dash="dash", line_color=dim_cyan, line_width=1,
                   annotation_text=f"Mean {mean_h:.1f} m",
                   annotation_position="top right",
-                  annotation_font_color="#1D9E75", yref="y1")
-    fig.add_hline(y=cep50, line_dash="dot", line_color="#BA7517", line_width=1,
+                  annotation_font_color=dim_cyan, yref="y1")
+    fig.add_hline(y=cep50, line_dash="dot", line_color=dim_amber, line_width=1,
                   annotation_text=f"CEP50 {cep50:.1f} m",
                   annotation_position="bottom right",
-                  annotation_font_color="#BA7517", yref="y1")
+                  annotation_font_color=dim_amber, yref="y1")
     fig.add_trace(go.Scatter(
         x=epochs_min, y=errors_v, mode="lines", name="Vertical error",
-        line=dict(color="#D85A30", width=1.5),
+        line=dict(color=NEON_RED, width=1.5),
         hovertemplate="Time: %{x:.2f} min<br>Vert. error: %{y:.1f} m<extra></extra>",
         yaxis="y2", visible="legendonly",
     ))
-    fig.add_hline(y=mean_v, line_dash="dash", line_color="#993C1D", line_width=1,
+    fig.add_hline(y=mean_v, line_dash="dash", line_color=dim_red, line_width=1,
                   annotation_text=f"Mean V {mean_v:.1f} m",
                   annotation_position="top left",
-                  annotation_font_color="#993C1D", yref="y2")
+                  annotation_font_color=dim_red, yref="y2")
     fig.add_trace(go.Scatter(
         x=epochs_min, y=hdop_vals, mode="lines", name="HDOP",
-        line=dict(color="#BA7517", width=1.5),
+        line=dict(color=NEON_AMBER, width=1.5),
         hovertemplate="Time: %{x:.2f} min<br>HDOP: %{y:.2f}<extra></extra>",
         yaxis="y3",
     ))
@@ -646,31 +836,63 @@ def make_error_timeseries(errors_h, errors_v, dop_list,
                   annotation_text="HDOP 2.0 threshold",
                   annotation_position="top right",
                   annotation_font_color="#666", yref="y3")
+
+    # Animation: draw the three lines left-to-right, one more point per frame.
+    # Base traces already hold the full series (static/PDF export stays
+    # complete); Play replays the progressive draw-on.
+    frames = []
+    for i in range(1, n + 1):
+        frames.append(go.Frame(
+            name=str(i),
+            traces=[0, 1, 2],
+            data=[
+                go.Scatter(x=epochs_min[:i], y=errors_h[:i]),
+                go.Scatter(x=epochs_min[:i], y=errors_v[:i]),
+                go.Scatter(x=epochs_min[:i], y=hdop_vals[:i]),
+            ],
+        ))
+    fig.frames = frames
+
     fig.update_layout(
         template="plotly_dark",
-        paper_bgcolor="#0e0e1a", plot_bgcolor="#0e0e1a",
+        paper_bgcolor=NEON_PAPER_BG, plot_bgcolor=NEON_PLOT_BG,
         title=dict(
             text="Error and Geometry Over Time",
-            font=dict(size=13, color="#ccccdd"), x=0.5,
+            font=dict(size=13, color=NEON_CYAN), x=0.5,
         ),
         xaxis=_axis("Time (minutes)",
-                    showgrid=True, gridcolor="#1e1e2e",
+                    showgrid=True, gridcolor=NEON_GRID,
                     domain=[0, 0.85]),
-        yaxis=_axis("Horizontal error (m)", title_color="#534AB7",
-                    showgrid=True, gridcolor="#1e1e2e"),
-        yaxis2=_axis("Vertical error (m)", title_color="#D85A30",
+        yaxis=_axis("Horizontal error (m)", title_color=NEON_CYAN,
+                    showgrid=True, gridcolor=NEON_GRID),
+        yaxis2=_axis("Vertical error (m)", title_color=NEON_RED,
                      overlaying="y", side="right",
                      position=0.86, showgrid=False),
-        yaxis3=_axis("HDOP", title_color="#BA7517",
+        yaxis3=_axis("HDOP", title_color=NEON_AMBER,
                      overlaying="y", side="right",
                      position=1.0, showgrid=False),
         legend=dict(
-            bgcolor="#1a1a2e", bordercolor="#333", borderwidth=1,
-            font=dict(color="#ccc", size=10),
+            bgcolor="#050508", bordercolor="#1a1a1a", borderwidth=1,
+            font=dict(color=NEON_GREEN, size=10),
             orientation="h", y=-0.18,
         ),
         hovermode="x unified",
         margin=dict(l=60, r=130, t=50, b=70), height=420,
+        updatemenus=[dict(
+            type="buttons", showactive=False,
+            x=0.02, y=1.15, xanchor="left", yanchor="top",
+            bgcolor="#000000", bordercolor=NEON_GREEN,
+            font=dict(color=NEON_GREEN),
+            buttons=[dict(
+                label="Play",
+                method="animate",
+                args=[None, dict(
+                    frame=dict(duration=20, redraw=True),
+                    transition=dict(duration=20),
+                    fromcurrent=False, mode="immediate",
+                )],
+            )],
+        )],
     )
     return fig
 
@@ -684,9 +906,8 @@ def make_snr_heatmap(snr_results):
     for i, sat in enumerate(sats):
         snr = snr_results[sat]["snr"]
         matrix[i, :len(snr)] = snr
-    flag_colors = {"clean": "#1D9E75", "suspect": "#BA7517", "multipath": "#D85A30"}
     ticktext = [
-        f'<span style="color:{flag_colors.get(snr_results[sat]["result"]["flag"], "#888")}">{sat}</span>'
+        f'<span style="color:{FLAG_COLORS.get(snr_results[sat]["result"]["flag"], "#888")}">{sat}</span>'
         for sat in sats
     ]
     fig = go.Figure(data=go.Heatmap(
@@ -694,15 +915,14 @@ def make_snr_heatmap(snr_results):
         x=list(range(max_epochs)),
         y=sats,
         colorscale=[
-            [0.0,  "#D85A30"],
-            [0.35, "#BA7517"],
-            [0.65, "#DDDD44"],
-            [1.0,  "#1D9E75"],
+            [0.0, NEON_RED],
+            [0.5, NEON_AMBER],
+            [1.0, NEON_GREEN],
         ],
         zmin=20, zmax=55,
         colorbar=dict(
-            title=dict(text="SNR (dB-Hz)", font=dict(color="#aaa")),
-            tickfont=dict(color="#aaa"),
+            title=dict(text="SNR (dB-Hz)", font=dict(color=NEON_GREEN)),
+            tickfont=dict(color=NEON_GREEN),
             thickness=14,
         ),
         hovertemplate=(
@@ -714,17 +934,17 @@ def make_snr_heatmap(snr_results):
     ))
     fig.update_layout(
         template="plotly_dark",
-        paper_bgcolor="#0e0e1a", plot_bgcolor="#0e0e1a",
+        paper_bgcolor=NEON_PAPER_BG, plot_bgcolor=NEON_PLOT_BG,
         title=dict(
             text="Signal Strength Over Time (SNR)",
-            font=dict(size=13, color="#ccccdd"), x=0.5,
+            font=dict(size=13, color=NEON_CYAN), x=0.5,
         ),
         xaxis=_axis("Epoch index", showgrid=False),
         yaxis=dict(
             tickmode="array",
             tickvals=list(range(len(sats))),
             ticktext=ticktext,
-            tickfont=dict(color="#aaa", size=10),
+            tickfont=dict(color=NEON_GREEN, size=10),
             showgrid=False,
         ),
         margin=dict(l=60, r=20, t=50, b=50),
@@ -749,6 +969,9 @@ def make_sky_plot(sat_sky_track, combined_flags, snr_results):
             hoverinfo="skip",
         ))
 
+    sat_trace_indices = {}
+    sat_r_theta = {}
+
     for sat in sorted(sat_sky_track.keys()):
         track = sat_sky_track[sat]
         az_list = track.get("az", [])
@@ -758,7 +981,7 @@ def make_sky_plot(sat_sky_track, combined_flags, snr_results):
             continue
 
         flag  = combined_flags.get(sat, "clean")
-        color = FLAG_COLORS.get(flag, "#1D9E75")
+        color = FLAG_COLORS.get(flag, "#00ff88")
         r_vals = [90.0 - el for el in el_list]
 
         snr_arr = np.full(n, np.nan)
@@ -781,6 +1004,7 @@ def make_sky_plot(sat_sky_track, combined_flags, snr_results):
                 f"SNR: {snr_str}"
             )
 
+        line_idx = len(fig.data)
         fig.add_trace(go.Scatterpolar(
             r=r_vals, theta=az_list, mode="lines",
             line=dict(color=color, width=1.8),
@@ -789,13 +1013,15 @@ def make_sky_plot(sat_sky_track, combined_flags, snr_results):
             showlegend=False,
             hovertext=hovertext, hoverinfo="text",
         ))
+        marker_idx = len(fig.data)
         fig.add_trace(go.Scatterpolar(
             r=[r_vals[-1]], theta=[az_list[-1]], mode="markers",
-            marker=dict(color=color, size=10, line=dict(color="#fff", width=1)),
+            marker=dict(color=color, size=10, line=dict(color="#000", width=1)),
             legendgroup=flag, showlegend=False,
             hovertext=[hovertext[-1]], hoverinfo="text",
         ))
         mid = n // 2
+        text_idx = len(fig.data)
         fig.add_trace(go.Scatterpolar(
             r=[r_vals[mid]], theta=[az_list[mid]], mode="text",
             text=[sat], textposition="top center",
@@ -804,40 +1030,84 @@ def make_sky_plot(sat_sky_track, combined_flags, snr_results):
             hoverinfo="skip",
         ))
 
+        sat_trace_indices[sat] = (line_idx, marker_idx, text_idx)
+        sat_r_theta[sat] = (r_vals, az_list, mid)
+
     mask_theta = np.linspace(0, 360, 181)
     fig.add_trace(go.Scatterpolar(
         r=[75.0] * len(mask_theta), theta=mask_theta, mode="lines",
-        line=dict(color="#666", width=1, dash="dash"),
+        line=dict(color="#444", width=1, dash="dash"),
         name="15 deg elevation mask",
         showlegend=False, hoverinfo="skip",
     ))
 
+    # Animation: reveal each satellite arc progressively, one full arc per
+    # frame. Base traces already hold the complete tracks (static/PDF export
+    # stays complete); Play replays the progressive draw-on.
+    valid_sats = list(sat_trace_indices.keys())
+    n_sats = len(valid_sats)
+    frames = []
+    for k in range(0, n_sats + 1):
+        frame_data = []
+        frame_traces = []
+        for idx, sat in enumerate(valid_sats):
+            line_idx, marker_idx, text_idx = sat_trace_indices[sat]
+            r_vals, az_list, mid = sat_r_theta[sat]
+            if idx < k:
+                frame_data.append(go.Scatterpolar(r=r_vals, theta=az_list))
+                frame_data.append(go.Scatterpolar(r=[r_vals[-1]], theta=[az_list[-1]]))
+                frame_data.append(go.Scatterpolar(r=[r_vals[mid]], theta=[az_list[mid]]))
+            else:
+                frame_data.append(go.Scatterpolar(r=[], theta=[]))
+                frame_data.append(go.Scatterpolar(r=[], theta=[]))
+                frame_data.append(go.Scatterpolar(r=[], theta=[]))
+            frame_traces.extend([line_idx, marker_idx, text_idx])
+        frames.append(go.Frame(name=str(k), data=frame_data, traces=frame_traces))
+    fig.frames = frames
+
     fig.update_layout(
         template="plotly_dark",
-        paper_bgcolor="#0e0e1a", plot_bgcolor="#0e0e1a",
+        paper_bgcolor=NEON_PAPER_BG, plot_bgcolor=NEON_PLOT_BG,
         title=dict(
             text="Satellite Sky Plot",
-            font=dict(size=13, color="#ccccdd"), x=0.5,
+            font=dict(size=13, color=NEON_CYAN), x=0.5,
         ),
         polar=dict(
-            bgcolor="#0e0e1a",
+            bgcolor="#000000",
             radialaxis=dict(
                 range=[0, 90],
                 tickvals=[0, 15, 30, 45, 60, 75, 90],
                 ticktext=["90", "75", "60", "45", "30", "15", "0"],
-                tickfont=dict(color="#aaa", size=9),
-                gridcolor="#333", linecolor="#333",
+                tickfont=dict(color=NEON_GREEN, size=9),
+                gridcolor=NEON_GREEN, linecolor=NEON_GREEN,
+                gridwidth=0.4,
             ),
             angularaxis=dict(
                 rotation=90, direction="clockwise",
-                tickfont=dict(color="#aaa", size=9),
-                gridcolor="#333", linecolor="#333",
+                tickfont=dict(color=NEON_GREEN, size=9),
+                gridcolor=NEON_GREEN, linecolor=NEON_GREEN,
+                gridwidth=0.4,
             ),
         ),
-        legend=dict(bgcolor="#1a1a2e", bordercolor="#333", borderwidth=1,
-                    font=dict(color="#ccc", size=10)),
+        legend=dict(bgcolor="#050508", bordercolor="#1a1a1a", borderwidth=1,
+                    font=dict(color=NEON_GREEN, size=10)),
         margin=dict(l=30, r=30, t=50, b=30),
         width=500, height=500,
+        updatemenus=[dict(
+            type="buttons", showactive=False,
+            x=0.02, y=1.12, xanchor="left", yanchor="top",
+            bgcolor="#000000", bordercolor=NEON_GREEN,
+            font=dict(color=NEON_GREEN),
+            buttons=[dict(
+                label="Play",
+                method="animate",
+                args=[None, dict(
+                    frame=dict(duration=300, redraw=True),
+                    transition=dict(duration=100),
+                    fromcurrent=False, mode="immediate",
+                )],
+            )],
+        )],
     )
     return fig
 
@@ -1072,12 +1342,30 @@ else:
     summary_text, banner_cls = generate_session_summary(
         stats["CEP50"], n_clean, n_suspect, n_multipath, mean_hdop,
     )
+    status_labels = {
+        "quality-banner-good": "NOMINAL",
+        "quality-banner-ok":   "CAUTION",
+        "quality-banner-poor": "ALERT",
+    }
+    status_label = status_labels.get(banner_cls, "CAUTION")
     st.markdown(
-        f'<div class="{banner_cls}">{summary_text}</div>',
+        f'<div class="{banner_cls}">'
+        f'<div style="font-size:11px;letter-spacing:0.15em;text-transform:uppercase;'
+        f'opacity:0.8;margin-bottom:6px">MISSION STATUS: {status_label}</div>'
+        f'{summary_text}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
     st.subheader("Accuracy summary")
+
+    components.html(
+        build_animated_metrics_html(
+            stats["CEP50"], stats["CEP95"], stats["RMSE_H"], stats["RMSE_V"],
+            mean_hdop, results["n_processed"],
+        ),
+        height=280,
+    )
 
     if not advanced_mode:
         st.markdown(

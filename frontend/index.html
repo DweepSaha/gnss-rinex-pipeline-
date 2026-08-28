@@ -1,0 +1,1190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GNSS Positioning Quality Analyzer</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green:  #00ff88;
+    --cyan:   #00d4ff;
+    --amber:  #ffaa00;
+    --red:    #ff4444;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #000000;
+    color: var(--green);
+    font-family: 'Space Mono', 'Courier New', monospace;
+    min-height: 100%;
+  }
+
+  /* Three.js globe canvas - full screen, behind everything */
+  #bg-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    display: block;
+  }
+
+  /* Scan-line overlay - purely decorative, never blocks interaction */
+  .scanline-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0, 255, 136, 0.03) 0px,
+      rgba(0, 255, 136, 0.03) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+  }
+
+  .page {
+    position: relative;
+    z-index: 2;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px 80px;
+  }
+
+  .panel {
+    width: 100%;
+    max-width: 900px;
+    background: rgba(0, 0, 0, 0.85);
+    border: 1px solid #00ff8844;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 4px;
+    padding: 32px;
+    opacity: 0;
+    animation: panel-border-pulse 4s ease-in-out infinite;
+  }
+
+  @keyframes panel-border-pulse {
+    0%, 100% { box-shadow: 0 0 12px #00ff8822; border-color: #00ff8844; }
+    50%      { box-shadow: 0 0 24px #00ff8844; border-color: #00ff8888; }
+  }
+
+  header.app-header { text-align: center; margin-bottom: 8px; }
+
+  header.app-header h1 {
+    font-size: 22px;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-shadow: 0 0 10px #00ff8899;
+    margin: 0;
+    animation: title-pulse 3s ease-in-out infinite;
+  }
+
+  @keyframes title-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.72; }
+  }
+
+  header.app-header .subtitle {
+    margin-top: 6px;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: #4fa3c9;
+    text-transform: uppercase;
+  }
+
+  .radar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: 1px solid #00ff8855;
+    margin: 16px auto 4px;
+    position: relative;
+    overflow: hidden;
+    background: radial-gradient(circle at center, #00ff8811 0%, transparent 70%);
+  }
+  .radar::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: conic-gradient(from 0deg, transparent 0deg, #00ff88aa 25deg, transparent 50deg);
+    animation: radar-spin 2s linear infinite;
+    transform-origin: center;
+  }
+  .radar::after {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 3px; height: 3px;
+    margin: -1.5px 0 0 -1.5px;
+    background: var(--green);
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--green);
+  }
+  @keyframes radar-spin { to { transform: rotate(360deg); } }
+
+  hr.divider {
+    border: none;
+    border-top: 1px solid #0d2018;
+    margin: 24px 0;
+  }
+
+  /* Upload / config form */
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--cyan);
+    margin-bottom: 12px;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .field { display: flex; flex-direction: column; }
+
+  .field label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #5fae86;
+    margin-bottom: 6px;
+  }
+
+  input[type="file"],
+  input[type="number"] {
+    width: 100%;
+    background: #050508;
+    border: 1px solid #00d4ff55;
+    color: var(--green);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    padding: 9px 10px;
+    border-radius: 2px;
+  }
+  input[type="file"]::file-selector-button {
+    background: #000;
+    color: var(--cyan);
+    border: 1px solid var(--cyan);
+    border-radius: 2px;
+    font-family: 'Space Mono', monospace;
+    padding: 4px 8px;
+    margin-right: 8px;
+    cursor: pointer;
+  }
+  input[type="number"]:focus, input[type="file"]:focus {
+    outline: none;
+    border-color: var(--green);
+    box-shadow: 0 0 6px #00ff8855;
+  }
+
+  .field.full { grid-column: 1 / -1; }
+
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--green);
+    background: transparent;
+  }
+
+  .slider-value {
+    font-size: 11px;
+    color: var(--green);
+    margin-top: 4px;
+    text-align: right;
+  }
+
+  .btn-initiate {
+    width: 100%;
+    margin-top: 24px;
+    padding: 16px;
+    background: #000000;
+    color: var(--green);
+    border: 1px solid var(--green);
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 0 8px #00ff8855;
+    border-radius: 2px;
+  }
+  .btn-initiate:disabled {
+    color: #2f5f47;
+    border-color: #2f5f47;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  .proc-dot { display: inline-block; }
+
+  /* Banners */
+  .error-banner {
+    display: none;
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-left: 4px solid var(--red);
+    background: #000;
+    color: #ff9a8a;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .status-banner {
+    margin-top: 20px;
+    padding: 12px 16px;
+    border-left: 4px solid var(--green);
+    background: #000;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    color: #8affc0;
+  }
+  .status-banner .status-label {
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    opacity: 0.8;
+    margin-bottom: 6px;
+  }
+  .status-banner.caution { border-left-color: var(--amber); color: #ffd98a; }
+  .status-banner.alert   { border-left-color: var(--red);   color: #ff9a8a; }
+
+  /* Results */
+  #results-section { display: none; margin-top: 28px; }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+
+  .metric-card {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: #000000;
+    border: 1px solid var(--green);
+    border-radius: 4px;
+    padding: 16px 8px;
+    box-shadow: 0 0 8px #00ff8866, 0 0 16px #00ff8822;
+  }
+  .metric-card .metric-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #5fae86;
+    margin-bottom: 6px;
+  }
+  .metric-card .metric-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--green);
+    text-shadow: 0 0 10px #00ff8899;
+  }
+  .metric-card.pulse-once { animation: metric-pulse 0.9s ease-out; }
+  @keyframes metric-pulse {
+    0%   { box-shadow: 0 0 0px #00ff8800; }
+    35%  { box-shadow: 0 0 20px #00ff88cc, 0 0 34px #00ff8866; }
+    100% { box-shadow: 0 0 8px #00ff8866, 0 0 16px #00ff8822; }
+  }
+
+  .sat-table-wrap {
+    margin-top: 24px;
+    overflow-x: auto;
+    border: 1px solid #1a3d2b;
+    border-radius: 4px;
+  }
+  table.sat-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    min-width: 560px;
+  }
+  table.sat-table thead th {
+    background: #000;
+    color: var(--green);
+    text-align: left;
+    padding: 8px 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 10px;
+    border-bottom: 1px solid #00ff8844;
+    white-space: nowrap;
+  }
+  table.sat-table tbody tr.row-even { background: #050508; }
+  table.sat-table tbody tr.row-odd  { background: #000000; }
+  table.sat-table td {
+    padding: 6px 10px;
+    white-space: nowrap;
+  }
+
+  .chart-row {
+    display: flex;
+    gap: 14px;
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
+  .chart-panel {
+    flex: 1 1 260px;
+    min-width: 260px;
+    border: 1px solid #00d4ff44;
+    border-radius: 4px;
+    padding: 8px;
+    background: #000000;
+    box-shadow: 0 0 8px #00d4ff22;
+  }
+  .chart-panel-label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    text-align: center;
+    margin-bottom: 6px;
+  }
+  .chart-full {
+    margin-top: 14px;
+    border: 1px solid #00d4ff44;
+    border-radius: 4px;
+    padding: 8px;
+    background: #000000;
+    box-shadow: 0 0 8px #00d4ff22;
+  }
+  .chart-empty {
+    color: #4a6a5a;
+    font-size: 12px;
+    text-align: center;
+    padding: 40px 0;
+  }
+
+  .btn-download {
+    width: 100%;
+    margin-top: 24px;
+    padding: 14px;
+    background: #000000;
+    color: var(--cyan);
+    border: 1px solid var(--cyan);
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .btn-download:disabled {
+    color: #2f5566;
+    border-color: #2f5566;
+    cursor: not-allowed;
+  }
+
+  footer.app-footer {
+    text-align: center;
+    color: #4a4a4a;
+    font-size: 11px;
+    margin-top: 28px;
+  }
+
+  @media (max-width: 640px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+<div class="scanline-overlay"></div>
+
+<div class="page">
+  <div class="panel" id="main-panel">
+
+    <header class="app-header">
+      <h1>GNSS POSITIONING QUALITY ANALYZER</h1>
+      <div class="subtitle">UNIVERSITY OF NEW BRUNSWICK / GGE DEPT</div>
+      <div class="radar" title="scanning"></div>
+    </header>
+
+    <hr class="divider">
+
+    <form id="analyze-form">
+      <div class="section-label">SESSION INPUT</div>
+      <div class="form-grid">
+        <div class="field full">
+          <label for="obs-file">Observation file (RINEX)</label>
+          <input type="file" id="obs-file" name="obs_file" required>
+        </div>
+        <div class="field full">
+          <label for="nav-file">Navigation file (RINEX)</label>
+          <input type="file" id="nav-file" name="nav_file" required>
+        </div>
+        <div class="field">
+          <label for="ref-lat">Latitude (deg)</label>
+          <input type="number" id="ref-lat" step="0.000001" value="45.933497" required>
+        </div>
+        <div class="field">
+          <label for="ref-lon">Longitude (deg)</label>
+          <input type="number" id="ref-lon" step="0.000001" value="-66.659879" required>
+        </div>
+        <div class="field">
+          <label for="ref-h">Ellipsoidal height (m)</label>
+          <input type="number" id="ref-h" step="0.001" value="95.960" required>
+        </div>
+        <div class="field">
+          <label for="max-epochs">Observations to analyze</label>
+          <input type="range" id="max-epochs" min="10" max="300" step="10" value="120">
+          <div class="slider-value" id="max-epochs-value">120</div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-initiate" id="btn-initiate">
+        <span id="btn-label">INITIATE ANALYSIS</span>
+      </button>
+    </form>
+
+    <div class="error-banner" id="error-banner"></div>
+
+    <div id="results-section">
+
+      <hr class="divider">
+      <div class="section-label">ACCURACY SUMMARY</div>
+
+      <div class="metrics-grid">
+        <div class="metric-card"><div class="metric-label">CEP50</div><div class="metric-value" id="metric-cep50">0.0 M</div></div>
+        <div class="metric-card"><div class="metric-label">CEP95</div><div class="metric-value" id="metric-cep95">0.0 M</div></div>
+        <div class="metric-card"><div class="metric-label">RMSE Horizontal</div><div class="metric-value" id="metric-rmseh">0.0 M</div></div>
+        <div class="metric-card"><div class="metric-label">RMSE Vertical</div><div class="metric-value" id="metric-rmsev">0.0 M</div></div>
+        <div class="metric-card"><div class="metric-label">Mean HDOP</div><div class="metric-value" id="metric-hdop">0.00</div></div>
+        <div class="metric-card"><div class="metric-label">Epochs</div><div class="metric-value" id="metric-epochs">0</div></div>
+      </div>
+
+      <div class="status-banner" id="status-banner">
+        <div class="status-label">MISSION STATUS: <span id="status-label-text">NOMINAL</span></div>
+        <div id="status-message"></div>
+      </div>
+
+      <div class="section-label" style="margin-top:24px">SIGNAL QUALITY - PER SATELLITE</div>
+      <div class="sat-table-wrap">
+        <table class="sat-table">
+          <thead>
+            <tr>
+              <th>Satellite</th>
+              <th>Flag</th>
+              <th>Mean SNR</th>
+              <th>SNR flag</th>
+              <th>CMC std (m)</th>
+              <th>CMC flag</th>
+            </tr>
+          </thead>
+          <tbody id="sat-table-body"></tbody>
+        </table>
+      </div>
+
+      <div class="section-label" style="margin-top:24px">POSITION ANALYSIS</div>
+      <div class="chart-row">
+        <div class="chart-panel">
+          <div class="chart-panel-label">Position Scatter</div>
+          <div id="chart-scatter"></div>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-panel-label">Sky Plot</div>
+          <div id="chart-sky"></div>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-panel-label">Signal Strength</div>
+          <div id="chart-snr"></div>
+        </div>
+      </div>
+
+      <div class="chart-full">
+        <div class="chart-panel-label">Error Over Time</div>
+        <div id="chart-timeseries"></div>
+      </div>
+
+      <button class="btn-download" id="btn-download" disabled>DOWNLOAD REPORT</button>
+    </div>
+
+    <footer class="app-footer">
+      GNSS Positioning Quality Analyzer &mdash; Department of Geodesy &amp; Geomatics Engineering &mdash; University of New Brunswick
+    </footer>
+
+  </div>
+</div>
+
+<!-- CDN libraries: Three.js (globe), Anime.js (UI motion), Plotly.js (charts) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+
+<script>
+"use strict";
+
+const API_BASE = "http://localhost:8000";
+
+/* =========================================================================
+   Three.js background globe - wireframe Earth + orbiting GPS satellites
+   ========================================================================= */
+(function () {
+  let scene, camera, renderer, globe, particles, _dir;
+  const satellites = [];
+  let clock = 0;
+
+  function init() {
+    _dir = new THREE.Vector3();
+    const canvas = document.getElementById("bg-canvas");
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(
+      55, window.innerWidth / window.innerHeight, 0.1, 1000
+    );
+    camera.position.z = 6;
+
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    // Wireframe globe
+    const globeGeo = new THREE.SphereGeometry(2, 24, 24);
+    const globeMat = new THREE.MeshBasicMaterial({ color: 0x003344, wireframe: true });
+    globe = new THREE.Mesh(globeGeo, globeMat);
+    scene.add(globe);
+
+    // 12 satellite nodes at different inclinations, connected to the globe
+    // surface with faint lines
+    const satGeo = new THREE.SphereGeometry(0.04, 8, 8);
+    for (let i = 0; i < 12; i++) {
+      const satMat = new THREE.MeshBasicMaterial({ color: 0x00eaff });
+      const mesh = new THREE.Mesh(satGeo, satMat);
+
+      const inclination = (i / 12) * Math.PI;
+      const speed = 0.15 + (i % 5) * 0.05;
+      const radius = 2.6 + (i % 3) * 0.25;
+      const phase = (i / 12) * Math.PI * 2;
+
+      scene.add(mesh);
+
+      const lineMat = new THREE.LineBasicMaterial({
+        color: 0x00d4ff, transparent: true, opacity: 0.22,
+      });
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, 0),
+      ]);
+      const line = new THREE.Line(lineGeo, lineMat);
+      scene.add(line);
+
+      satellites.push({ mesh, line, inclination, speed, radius, phase });
+    }
+
+    // Ambient particle field
+    const particleGeo = new THREE.BufferGeometry();
+    const positions = [];
+    for (let i = 0; i < 200; i++) {
+      positions.push(
+        (Math.random() - 0.5) * 50,
+        (Math.random() - 0.5) * 50,
+        (Math.random() - 0.5) * 40 - 8
+      );
+    }
+    particleGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    const particleMat = new THREE.PointsMaterial({
+      color: 0xffffff, size: 0.045, transparent: true, opacity: 0.55,
+    });
+    particles = new THREE.Points(particleGeo, particleMat);
+    scene.add(particles);
+
+    window.addEventListener("resize", onResize);
+    animate();
+  }
+
+  function onResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    clock += 0.01;
+
+    globe.rotation.y += 0.001;
+
+    satellites.forEach((s) => {
+      const angle = clock * s.speed + s.phase;
+      const x = s.radius * Math.cos(angle);
+      const zBase = s.radius * Math.sin(angle);
+      const y = zBase * Math.sin(s.inclination);
+      const z = zBase * Math.cos(s.inclination);
+      s.mesh.position.set(x, y, z);
+
+      _dir.set(x, y, z).normalize().multiplyScalar(2);
+      const pos = s.line.geometry.attributes.position;
+      pos.setXYZ(0, _dir.x, _dir.y, _dir.z);
+      pos.setXYZ(1, x, y, z);
+      pos.needsUpdate = true;
+    });
+
+    particles.rotation.y += 0.0002;
+
+    renderer.render(scene, camera);
+  }
+
+  try {
+    if (window.THREE) {
+      init();
+    } else {
+      window.addEventListener("load", init);
+    }
+  } catch (e) {
+    // A Three.js/WebGL failure (CDN blocked, no WebGL support, etc.) should
+    // only cost the background globe, never the rest of the page.
+    console.error("Three.js globe failed to initialize:", e);
+  }
+})();
+
+/* =========================================================================
+   Anime.js - page-load / interaction motion
+   ========================================================================= */
+anime({
+  targets: "#main-panel",
+  opacity: [0, 1],
+  translateY: [20, 0],
+  duration: 800,
+  easing: "easeOutQuad",
+});
+
+const btnInitiate = document.getElementById("btn-initiate");
+btnInitiate.addEventListener("mouseenter", () => {
+  anime({
+    targets: btnInitiate,
+    boxShadow: "0 0 26px #00ff88cc",
+    duration: 300,
+    easing: "easeOutQuad",
+  });
+});
+btnInitiate.addEventListener("mouseleave", () => {
+  anime({
+    targets: btnInitiate,
+    boxShadow: "0 0 8px #00ff8855",
+    duration: 300,
+    easing: "easeOutQuad",
+  });
+});
+
+let processingAnim = null;
+function showProcessing() {
+  const label = document.getElementById("btn-label");
+  label.innerHTML =
+    'PROCESSING<span class="proc-dot">.</span><span class="proc-dot">.</span><span class="proc-dot">.</span>';
+  processingAnim = anime({
+    targets: "#btn-label .proc-dot",
+    opacity: [0.15, 1],
+    delay: anime.stagger(150),
+    duration: 400,
+    direction: "alternate",
+    loop: true,
+    easing: "easeInOutSine",
+  });
+  btnInitiate.disabled = true;
+}
+function hideProcessing() {
+  if (processingAnim) { processingAnim.pause(); processingAnim = null; }
+  document.getElementById("btn-label").textContent = "INITIATE ANALYSIS";
+  btnInitiate.disabled = false;
+}
+
+document.getElementById("max-epochs").addEventListener("input", (e) => {
+  document.getElementById("max-epochs-value").textContent = e.target.value;
+});
+
+/* =========================================================================
+   Dark neon Plotly theme + chart builders (client-side equivalents of the
+   Python make_scatter_plot / make_error_timeseries / make_snr_heatmap /
+   make_sky_plot in gnss_processor.py)
+   ========================================================================= */
+const NEON_GREEN = "#00ff88";
+const NEON_CYAN  = "#00d4ff";
+const NEON_AMBER = "#ffaa00";
+const NEON_RED   = "#ff4444";
+const NEON_GRID  = "#111111";
+const FLAG_COLORS = { clean: NEON_GREEN, suspect: NEON_AMBER, multipath: NEON_RED };
+
+function percentile(arr, p) {
+  const sorted = arr.slice().sort((a, b) => a - b);
+  if (sorted.length === 0) return 0;
+  const idx = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+function neonLayout(overrides) {
+  return Object.assign({
+    paper_bgcolor: "#000000",
+    plot_bgcolor: "#000000",
+    font: { family: "Space Mono, monospace", color: NEON_GREEN },
+    legend: {
+      bgcolor: "#050508", bordercolor: "#1a1a1a", borderwidth: 1,
+      font: { color: NEON_GREEN, size: 10 },
+    },
+    margin: { l: 50, r: 20, t: 40, b: 40 },
+  }, overrides);
+}
+
+const PLOTLY_CONFIG = { displayModeBar: false, responsive: true };
+
+function renderScatterChart(results) {
+  const eh = results.errors_h, north = results.north_errors, east = results.east_errors;
+  if (!eh || eh.length === 0) {
+    document.getElementById("chart-scatter").innerHTML = '<div class="chart-empty">NO DATA</div>';
+    return;
+  }
+  const cep50 = percentile(eh, 50), cep95 = percentile(eh, 95);
+  const theta = Array.from({ length: 300 }, (_, i) => (i / 299) * 2 * Math.PI);
+
+  const traces = [
+    {
+      x: theta.map((t) => cep95 * Math.cos(t)), y: theta.map((t) => cep95 * Math.sin(t)),
+      mode: "lines", line: { color: NEON_RED, width: 1.5, dash: "dash" },
+      name: "CEP95 = " + cep95.toFixed(1) + " m", hoverinfo: "skip",
+    },
+    {
+      x: theta.map((t) => cep50 * Math.cos(t)), y: theta.map((t) => cep50 * Math.sin(t)),
+      mode: "lines", line: { color: NEON_GREEN, width: 1.8, dash: "dash" },
+      name: "CEP50 = " + cep50.toFixed(1) + " m", hoverinfo: "skip",
+    },
+    {
+      x: east, y: north, mode: "markers",
+      marker: {
+        color: eh, colorscale: [[0, NEON_CYAN], [0.5, NEON_AMBER], [1, NEON_RED]],
+        size: 5, opacity: 0.85, showscale: true,
+        colorbar: {
+          title: { text: "Horiz. error (m)", font: { color: NEON_CYAN } },
+          tickfont: { color: NEON_GREEN }, thickness: 12, len: 0.6,
+        },
+      },
+      name: "Position fixes",
+      hovertemplate: "East: %{x:.1f} m<br>North: %{y:.1f} m<extra></extra>",
+    },
+    {
+      x: [0], y: [0], mode: "markers",
+      marker: { symbol: "cross", size: 14, color: NEON_RED, line: { color: NEON_RED, width: 2.5 } },
+      name: "True position",
+    },
+  ];
+
+  const layout = neonLayout({
+    title: {
+      text: "CEP50 " + cep50.toFixed(1) + " m | CEP95 " + cep95.toFixed(1) + " m",
+      font: { size: 12, color: NEON_CYAN }, x: 0.5,
+    },
+    xaxis: {
+      title: { text: "East error (m)", font: { color: NEON_CYAN } },
+      tickfont: { color: NEON_GREEN }, showgrid: true, gridcolor: NEON_GRID,
+      zeroline: true, zerolinecolor: "#333",
+    },
+    yaxis: {
+      title: { text: "North error (m)", font: { color: NEON_CYAN } },
+      tickfont: { color: NEON_GREEN }, showgrid: true, gridcolor: NEON_GRID,
+      zeroline: true, zerolinecolor: "#333", scaleanchor: "x",
+    },
+    height: 340,
+  });
+  Plotly.newPlot("chart-scatter", traces, layout, PLOTLY_CONFIG);
+}
+
+function renderSkyChart(results) {
+  const track = results.sat_sky_track || {};
+  const flags = results.combined_flags || {};
+  const sats = Object.keys(track);
+  if (sats.length === 0) {
+    document.getElementById("chart-sky").innerHTML = '<div class="chart-empty">NO SKY TRACK DATA</div>';
+    return;
+  }
+
+  const traces = [];
+  ["clean", "suspect", "multipath"].forEach((f) => {
+    traces.push({
+      r: [null], theta: [null], mode: "lines", type: "scatterpolar",
+      line: { color: FLAG_COLORS[f], width: 2.5 },
+      name: f.charAt(0).toUpperCase() + f.slice(1),
+      showlegend: true, hoverinfo: "skip",
+    });
+  });
+
+  sats.sort().forEach((sat) => {
+    const az = track[sat].az || [], el = track[sat].el || [];
+    if (az.length === 0) return;
+    const flag = flags[sat] || "clean";
+    const color = FLAG_COLORS[flag] || NEON_GREEN;
+    const r = el.map((e) => 90 - e);
+    traces.push({
+      r, theta: az, mode: "lines", type: "scatterpolar",
+      line: { color, width: 1.8 }, showlegend: false, name: sat,
+    });
+    traces.push({
+      r: [r[r.length - 1]], theta: [az[az.length - 1]], mode: "markers", type: "scatterpolar",
+      marker: { color, size: 9, line: { color: "#000", width: 1 } }, showlegend: false,
+    });
+    const mid = Math.floor(az.length / 2);
+    traces.push({
+      r: [r[mid]], theta: [az[mid]], mode: "text", type: "scatterpolar",
+      text: [sat], textposition: "top center",
+      textfont: { color, size: 9 }, showlegend: false,
+    });
+  });
+
+  const maskTheta = Array.from({ length: 181 }, (_, i) => i * 2);
+  traces.push({
+    r: Array(181).fill(75), theta: maskTheta, mode: "lines", type: "scatterpolar",
+    line: { color: "#444", width: 1, dash: "dash" }, showlegend: false, hoverinfo: "skip",
+  });
+
+  const layout = neonLayout({
+    polar: {
+      bgcolor: "#000000",
+      radialaxis: {
+        range: [0, 90], tickvals: [0, 15, 30, 45, 60, 75, 90],
+        ticktext: ["90", "75", "60", "45", "30", "15", "0"],
+        tickfont: { color: NEON_GREEN, size: 8 },
+        gridcolor: NEON_GREEN, linecolor: NEON_GREEN, gridwidth: 0.3,
+      },
+      angularaxis: {
+        rotation: 90, direction: "clockwise",
+        tickfont: { color: NEON_GREEN, size: 8 },
+        gridcolor: NEON_GREEN, linecolor: NEON_GREEN, gridwidth: 0.3,
+      },
+    },
+    height: 340,
+    showlegend: false,
+  });
+  Plotly.newPlot("chart-sky", traces, layout, PLOTLY_CONFIG);
+}
+
+function renderSnrChart(results) {
+  const snrResults = results.snr_results || {};
+  const sats = Object.keys(snrResults).sort();
+  if (sats.length === 0) {
+    document.getElementById("chart-snr").innerHTML = '<div class="chart-empty">NO SNR DATA</div>';
+    return;
+  }
+  const maxEpochs = Math.max.apply(null, sats.map((s) => snrResults[s].snr.length));
+  const z = sats.map((s) => {
+    const arr = snrResults[s].snr.slice();
+    while (arr.length < maxEpochs) arr.push(null);
+    return arr;
+  });
+  const trace = {
+    z, x: Array.from({ length: maxEpochs }, (_, i) => i), y: sats, type: "heatmap",
+    colorscale: [[0, NEON_RED], [0.5, NEON_AMBER], [1, NEON_GREEN]],
+    zmin: 20, zmax: 55,
+    colorbar: {
+      title: { text: "SNR (dB-Hz)", font: { color: NEON_GREEN } },
+      tickfont: { color: NEON_GREEN }, thickness: 12,
+    },
+  };
+  const layout = neonLayout({
+    xaxis: {
+      title: { text: "Epoch index", font: { color: NEON_CYAN } },
+      tickfont: { color: NEON_GREEN }, showgrid: false,
+    },
+    yaxis: { tickfont: { color: NEON_GREEN, size: 9 }, showgrid: false },
+    height: 340,
+  });
+  Plotly.newPlot("chart-snr", [trace], layout, PLOTLY_CONFIG);
+}
+
+function renderTimeseriesChart(results) {
+  const eh = results.errors_h, ev = results.errors_v, dop = results.dop_list || [];
+  if (!eh || eh.length === 0) {
+    document.getElementById("chart-timeseries").innerHTML = '<div class="chart-empty">NO DATA</div>';
+    return;
+  }
+  const interval = results.epoch_interval_seconds || 30.0;
+  const epochsMin = eh.map((_, i) => (i * interval) / 60.0);
+  const hdopVals = dop.map((d) => (d ? d.HDOP : null));
+  const meanH = eh.reduce((a, b) => a + b, 0) / eh.length;
+  const cep50 = percentile(eh, 50);
+
+  const traces = [
+    {
+      x: epochsMin, y: eh, mode: "lines", name: "Horizontal error",
+      line: { color: NEON_CYAN, width: 1.5 }, yaxis: "y1",
+    },
+    {
+      x: epochsMin, y: ev, mode: "lines", name: "Vertical error",
+      line: { color: NEON_RED, width: 1.5 }, yaxis: "y2", visible: "legendonly",
+    },
+    {
+      x: epochsMin, y: hdopVals, mode: "lines", name: "HDOP",
+      line: { color: NEON_AMBER, width: 1.5 }, yaxis: "y3",
+    },
+  ];
+
+  const layout = neonLayout({
+    xaxis: {
+      title: { text: "Time (minutes)", font: { color: NEON_CYAN } },
+      tickfont: { color: NEON_GREEN }, showgrid: true, gridcolor: NEON_GRID,
+      domain: [0, 0.85],
+    },
+    yaxis: {
+      title: { text: "Horizontal error (m)", font: { color: NEON_CYAN } },
+      tickfont: { color: NEON_GREEN }, showgrid: true, gridcolor: NEON_GRID,
+    },
+    yaxis2: {
+      title: { text: "Vertical error (m)", font: { color: NEON_RED } },
+      tickfont: { color: NEON_GREEN }, overlaying: "y", side: "right",
+      position: 0.86, showgrid: false,
+    },
+    yaxis3: {
+      title: { text: "HDOP", font: { color: NEON_AMBER } },
+      tickfont: { color: NEON_GREEN }, overlaying: "y", side: "right",
+      position: 1.0, showgrid: false,
+    },
+    hovermode: "x unified",
+    height: 320,
+    shapes: [
+      {
+        type: "line", xref: "paper", x0: 0, x1: 0.85, yref: "y1", y0: meanH, y1: meanH,
+        line: { color: "rgba(0,212,255,0.45)", dash: "dash", width: 1 },
+      },
+      {
+        type: "line", xref: "paper", x0: 0, x1: 0.85, yref: "y1", y0: cep50, y1: cep50,
+        line: { color: "rgba(255,170,0,0.45)", dash: "dot", width: 1 },
+      },
+    ],
+  });
+  Plotly.newPlot("chart-timeseries", traces, layout, PLOTLY_CONFIG);
+}
+
+/* =========================================================================
+   Satellite quality table (terminal-style readout)
+   ========================================================================= */
+function buildSatelliteTable(results) {
+  const flags = results.combined_flags || {};
+  const snr = results.snr_results || {};
+  const cmc = results.cmc_results || {};
+  const sats = Object.keys(flags).sort();
+  const tbody = document.getElementById("sat-table-body");
+  tbody.innerHTML = "";
+
+  sats.forEach((sat, i) => {
+    const flag = flags[sat] || "clean";
+    const snrR = (snr[sat] || {}).result || {};
+    const cmcR = (cmc[sat] || {}).result || {};
+    const color = FLAG_COLORS[flag] || NEON_GREEN;
+    const symbol = flag === "clean" ? "+" : flag === "suspect" ? "!" : "x";
+
+    const tr = document.createElement("tr");
+    tr.className = i % 2 === 0 ? "row-even" : "row-odd";
+    tr.style.opacity = "0";
+    tr.innerHTML =
+      "<td>" + sat + "</td>" +
+      '<td style="color:' + color + '">' + symbol + " " + flag.toUpperCase() + "</td>" +
+      "<td>" + (snrR.mean_snr != null ? snrR.mean_snr.toFixed(1) + " dB-Hz" : "-") + "</td>" +
+      "<td>" + (snrR.flag ? snrR.flag.toUpperCase() : "-") + "</td>" +
+      "<td>" + (cmcR.std != null ? cmcR.std.toFixed(4) : "-") + "</td>" +
+      "<td>" + (cmcR.flag ? cmcR.flag.toUpperCase() : "-") + "</td>";
+    tbody.appendChild(tr);
+  });
+
+  anime({
+    targets: "#sat-table-body tr",
+    translateX: [-30, 0],
+    opacity: [0, 1],
+    delay: anime.stagger(50),
+    duration: 400,
+    easing: "easeOutQuad",
+  });
+}
+
+/* =========================================================================
+   Mission status banner
+   ========================================================================= */
+function setStatusBanner(data) {
+  const stats = data.stats;
+  const meanHdop = data.mean_hdop;
+  const flags = data.results.combined_flags || {};
+  const values = Object.values(flags);
+  const nClean = values.filter((f) => f === "clean").length;
+  const nSuspect = values.filter((f) => f === "suspect").length;
+  const nMultipath = values.filter((f) => f === "multipath").length;
+  const total = nClean + nSuspect + nMultipath;
+  const cep50 = stats.CEP50;
+
+  let status = "NOMINAL", cls = "";
+  if (total === 0) {
+    status = "CAUTION"; cls = "caution";
+  } else {
+    if (cep50 < 60) { status = "NOMINAL"; cls = ""; }
+    else if (cep50 < 150) { status = "CAUTION"; cls = "caution"; }
+    else { status = "ALERT"; cls = "alert"; }
+
+    if (meanHdop >= 2.0 && status === "NOMINAL") { status = "CAUTION"; cls = "caution"; }
+    if (nMultipath > 2) { status = "ALERT"; cls = "alert"; }
+    else if (nMultipath > 0 && status === "NOMINAL") { status = "CAUTION"; cls = "caution"; }
+  }
+
+  const banner = document.getElementById("status-banner");
+  banner.className = "status-banner" + (cls ? " " + cls : "");
+  document.getElementById("status-label-text").textContent = status;
+  document.getElementById("status-message").textContent =
+    "CEP50 " + cep50.toFixed(1) + " m | Mean HDOP " + meanHdop.toFixed(2) +
+    " | " + nClean + "/" + total + " satellites clean";
+}
+
+/* =========================================================================
+   Metric cards - Anime.js staggered reveal + count-up
+   ========================================================================= */
+function revealMetricCards(data) {
+  const specs = [
+    { id: "metric-cep50", value: data.stats.CEP50, decimals: 1, suffix: " M" },
+    { id: "metric-cep95", value: data.stats.CEP95, decimals: 1, suffix: " M" },
+    { id: "metric-rmseh", value: data.stats.RMSE_H, decimals: 1, suffix: " M" },
+    { id: "metric-rmsev", value: data.stats.RMSE_V, decimals: 1, suffix: " M" },
+    { id: "metric-hdop", value: data.mean_hdop, decimals: 2, suffix: "" },
+    { id: "metric-epochs", value: data.results.n_processed, decimals: 0, suffix: "" },
+  ];
+
+  const cards = specs.map((s) => document.getElementById(s.id).closest(".metric-card"));
+  cards.forEach((el) => { el.style.display = "flex"; el.style.opacity = "0"; });
+
+  anime({
+    targets: cards,
+    opacity: [0, 1],
+    translateY: [20, 0],
+    delay: anime.stagger(100),
+    duration: 500,
+    easing: "easeOutQuad",
+  });
+
+  specs.forEach((s, i) => {
+    setTimeout(() => {
+      const el = document.getElementById(s.id);
+      const counter = { val: 0 };
+      anime({
+        targets: counter,
+        val: s.value,
+        duration: 1500,
+        easing: "easeOutExpo",
+        update: () => { el.textContent = counter.val.toFixed(s.decimals) + s.suffix; },
+        complete: () => {
+          el.textContent = s.value.toFixed(s.decimals) + s.suffix;
+          const card = el.closest(".metric-card");
+          card.classList.add("pulse-once");
+          setTimeout(() => card.classList.remove("pulse-once"), 900);
+        },
+      });
+    }, i * 100);
+  });
+}
+
+/* =========================================================================
+   API integration
+   ========================================================================= */
+let lastAnalyzeData = null;
+
+function showError(message) {
+  const banner = document.getElementById("error-banner");
+  banner.textContent = "ERROR: " + message;
+  banner.style.display = "block";
+}
+function hideError() {
+  document.getElementById("error-banner").style.display = "none";
+}
+
+document.getElementById("analyze-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  hideError();
+  document.getElementById("results-section").style.display = "none";
+  document.getElementById("btn-download").disabled = true;
+
+  const obsInput = document.getElementById("obs-file");
+  const navInput = document.getElementById("nav-file");
+  if (!obsInput.files[0] || !navInput.files[0]) {
+    showError("Please choose both an observation file and a navigation file.");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("obs_file", obsInput.files[0]);
+  formData.append("nav_file", navInput.files[0]);
+  formData.append("ref_lat", document.getElementById("ref-lat").value);
+  formData.append("ref_lon", document.getElementById("ref-lon").value);
+  formData.append("ref_h", document.getElementById("ref-h").value);
+  formData.append("max_epochs", document.getElementById("max-epochs").value);
+
+  showProcessing();
+
+  try {
+    const resp = await fetch(API_BASE + "/analyze", { method: "POST", body: formData });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      throw new Error(data.detail || ("Request failed with status " + resp.status));
+    }
+
+    lastAnalyzeData = data;
+
+    document.getElementById("results-section").style.display = "block";
+    revealMetricCards(data);
+    setStatusBanner(data);
+    buildSatelliteTable(data.results);
+    renderScatterChart(data.results);
+    renderSkyChart(data.results);
+    renderSnrChart(data.results);
+    renderTimeseriesChart(data.results);
+
+    document.getElementById("btn-download").disabled = false;
+    document.getElementById("results-section").scrollIntoView({ behavior: "smooth" });
+  } catch (err) {
+    showError(err.message || "Could not reach the analysis API at " + API_BASE +
+      ". Is the FastAPI server running (uvicorn api:app --port 8000)?");
+  } finally {
+    hideProcessing();
+  }
+});
+
+document.getElementById("btn-download").addEventListener("click", async () => {
+  if (!lastAnalyzeData) return;
+  const btn = document.getElementById("btn-download");
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "GENERATING...";
+  try {
+    const resp = await fetch(API_BASE + "/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(lastAnalyzeData),
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.detail || "Report generation failed.");
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "GNSS_Quality_Report.pdf";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    showError(err.message || "Could not generate the PDF report.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+});
+</script>
+
+</body>
+</html>

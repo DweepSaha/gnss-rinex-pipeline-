@@ -1,0 +1,9 @@
+@echo off
+echo Starting GNSS Analyzer API...
+start cmd /k "cd /d C:\Users\Dweep\OneDrive\Desktop\gnss-rinex-pipeline && .venv\Scripts\activate && uvicorn api:app --reload --port 8000"
+echo Waiting for API to start...
+timeout /t 3
+echo Opening frontend...
+start "" "frontend\index.html"
+echo Done. API running at http://localhost:8000
+echo Frontend opened in default browser.
