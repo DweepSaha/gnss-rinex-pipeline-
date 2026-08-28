@@ -3,7 +3,9 @@
 A web application for analyzing GPS positioning quality from RINEX 
 observation and navigation files.
 
-**Live demo:** https://gnss-saha.streamlit.app
+**Streamlit dashboard:** https://gnss-saha.streamlit.app
+**Custom frontend:** https://dweepsaha.github.io/gnss-rinex-pipeline-/
+**API:** https://gnss-analyzer-api.onrender.com/health
 
 Built at the Department of Geodesy and Geomatics Engineering,  
 University of New Brunswick.
