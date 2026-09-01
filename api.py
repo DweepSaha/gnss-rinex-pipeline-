@@ -41,10 +41,9 @@ app.add_middleware(
 )
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "service": "GNSS Quality Analyzer API"}
-
 
 def _save_upload(upload: UploadFile) -> str:
     """Save a FastAPI UploadFile to a temp path and return that path."""
